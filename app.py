@@ -140,6 +140,7 @@ def startup():
     _model.eval()
     mode = _load_or_build_text_emb()
     print(f"[startup] device={DEVICE} labels={len(_labels or [])} text_emb={mode}")
+    _load_translation_cache()
 
 
 @app.get("/health")
@@ -204,6 +205,7 @@ LIBRETRANSLATE_URL = os.getenv("LIBRETRANSLATE_URL", "")
 LIBRETRANSLATE_API_KEY = os.getenv("LIBRETRANSLATE_API_KEY", "")
 
 DEEPL_AUTH_KEY = os.getenv("DEEPL_AUTH_KEY", "")
+MYMEMORY_EMAIL = os.getenv("MYMEMORY_EMAIL", "")  # optional: increases free quota on MyMemory
 DEEPL_API_URL = os.getenv("DEEPL_API_URL", "https://api-free.deepl.com/v2/translate")  # or api.deepl.com
 
 def _map_target(lang: str) -> str:
@@ -257,6 +259,98 @@ def _translate_libre(texts: List[str], target: str) -> List[str]:
     # fallback
     return [""] * len(texts)
 
+
+
+# ---- MyMemory fallback (free, online; has daily quota) ----
+# Uses: https://api.mymemory.translated.net/get?q=Hello&langpair=en|ja
+# Free anonymous quota is limited; providing an email ('de' param) increases quota.
+MYMEMORY_API_URL = "https://api.mymemory.translated.net/get"
+_TR_CACHE_PATH = os.path.join("data", "translation_cache.json")
+_tr_cache: Dict[str, str] = {}
+_tr_cache_dirty = 0
+
+def _load_translation_cache():
+    global _tr_cache
+    try:
+        os.makedirs(os.path.dirname(_TR_CACHE_PATH), exist_ok=True)
+        if os.path.exists(_TR_CACHE_PATH):
+            with open(_TR_CACHE_PATH, "r", encoding="utf-8") as f:
+                _tr_cache = json.load(f) or {}
+    except Exception:
+        _tr_cache = {}
+
+def _save_translation_cache():
+    global _tr_cache_dirty
+    if _tr_cache_dirty <= 0:
+        return
+    try:
+        os.makedirs(os.path.dirname(_TR_CACHE_PATH), exist_ok=True)
+        tmp = _TR_CACHE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_tr_cache, f, ensure_ascii=False)
+        os.replace(tmp, _TR_CACHE_PATH)
+        _tr_cache_dirty = 0
+    except Exception:
+        # best-effort cache
+        pass
+
+def _map_mymemory_lang(target: str) -> str:
+    t = (target or "en").lower()
+    if t in ("zh", "zh-cn", "zh-hans"):
+        return "zh-CN"
+    if t in ("ko", "ko-kr"):
+        return "ko"
+    if t in ("ja", "ja-jp"):
+        return "ja"
+    if t.startswith("en"):
+        return "en"
+    return t
+
+def _translate_mymemory(texts: List[str], target: str) -> List[str]:
+    # MyMemory translates one segment per request -> cache + small parallelization.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    tgt = _map_mymemory_lang(target)
+    if tgt == "en":
+        return texts
+
+    def one(t: str) -> str:
+        global _tr_cache_dirty
+        key = f"{tgt}\t{t}"
+        if key in _tr_cache:
+            return _tr_cache.get(key, "")
+        params = {"q": t, "langpair": f"en|{tgt}"}
+        if MYMEMORY_EMAIL:
+            params["de"] = MYMEMORY_EMAIL
+        r = requests.get(MYMEMORY_API_URL, params=params, timeout=20)
+        r.raise_for_status()
+        j = r.json()
+        tr = (j.get("responseData") or {}).get("translatedText", "")
+        _tr_cache[key] = tr
+        _tr_cache_dirty += 1
+        if _tr_cache_dirty >= 50:
+            _save_translation_cache()
+        return tr
+
+    out = [""] * len(texts)
+    max_workers = 8
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = {}
+        for i, t in enumerate(texts):
+            tt = (t or "").strip()
+            if not tt:
+                out[i] = ""
+                continue
+            futs[ex.submit(one, tt)] = i
+        for fut in as_completed(futs):
+            i = futs[fut]
+            try:
+                out[i] = fut.result()
+            except Exception:
+                out[i] = ""
+    _save_translation_cache()
+    return out
+
 @app.post("/translate")
 def translate(payload: Dict[str, Any] = Body(...)):
     target = payload.get("target", "en")
@@ -283,7 +377,5 @@ def translate(payload: Dict[str, Any] = Body(...)):
             return {"error": "libretranslate_failed", "detail": str(e), "textsTranslated": []}
 
     return {
-        "error": "no_translation_provider_configured",
-        "detail": "Set DEEPL_AUTH_KEY or LIBRETRANSLATE_URL (and optional LIBRETRANSLATE_API_KEY).",
-        "textsTranslated": []
+        "textsTranslated": _translate_mymemory(texts, target)
     }

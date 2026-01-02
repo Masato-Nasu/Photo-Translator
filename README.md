@@ -1,3 +1,8 @@
+---
+title: Photo Translator API
+sdk: docker
+---
+
 # Photo-Translator Server (Open Images ~20k vocab Top-K)
 
 This server provides:
@@ -71,3 +76,18 @@ This app auto-detects CUDA.
 - `ALLOWED_ORIGINS` (default: `*`) comma-separated
 - `DEEPL_AUTH_KEY` / `DEEPL_API_URL`
 - `LIBRETRANSLATE_URL` / `LIBRETRANSLATE_API_KEY`
+
+## Free translation (no key)
+
+If you don't set `DEEPL_AUTH_KEY` and don't set `LIBRETRANSLATE_URL`, the server will fall back to **MyMemory** (free online MT).
+
+- Uses: `https://api.mymemory.translated.net/get`
+- Optional: set `MYMEMORY_EMAIL` to increase the free daily quota (MyMemory uses this as the `de=` contact parameter).
+- Note: MyMemory has daily limits and quality varies (it's a translation memory + MT). The server caches translations to `data/translation_cache.json` to reduce repeated calls.
+
+Example (PowerShell):
+
+```powershell
+$env:MYMEMORY_EMAIL="you@example.com"   # optional
+python -m uvicorn app:app --host 0.0.0.0 --port 8080
+```

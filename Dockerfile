@@ -18,5 +18,5 @@ COPY . .
 # Download Open Images vocab at build time (optional; will also download at runtime if missing)
 RUN python build_vocab.py
 
-EXPOSE 8080
-CMD ["uvicorn", "app:app", "--host=0.0.0.0", "--port=8080"]
+EXPOSE 7860
+CMD ["uvicorn", "app:app", "--host=0.0.0.0", "--port=7860"]
