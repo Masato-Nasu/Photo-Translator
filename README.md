@@ -1,41 +1,73 @@
-# Photo Tagger PWA (Top-K + Primary-only Pronunciation)
+# Photo-Translator Server (Open Images ~20k vocab Top-K)
 
-スマホで **撮影した1枚**（または画像ファイル）を解析し、タグTop-Kを表示し、**Primary言語だけ**で発音（TTS）します。
+This server provides:
+- `POST /tagger?topk=30` : Image -> Top-K tags (English labels) using CLIP ranking over Open Images class descriptions.
+- `POST /translate` (optional) : Translate English labels to `ja/zh/ko` for the PWA.
 
-## できること
-- 📸 撮影 → 🔎 タグ解析（画像全体のTop-Kタグ）
-- 🖼 画像読み込み → 🔎 タグ解析
-- タグをタップ（または🔊）で **Primary言語で発音**
-- 🔊 上位を連続発音（最大10個）
+## Endpoints
 
-## 必要なもの（サーバ）
-このPWAはタグ生成をサーバに依存します。
+### Health
+`GET /health`
 
-### タグ生成
-- `POST {TAGGER_ENDPOINT}/tagger?topk=30`
-- `multipart/form-data` で `image` を受け取り
-- JSONで `{"tags":[{"label_en":"Cat","score":0.73}, ...]}` を返す
+### Tagger
+`POST /tagger?topk=30`
 
-（例：Open Images 20,638語彙をCLIPでランキングしてTop-Kを返すサーバ）
-
-### （任意）翻訳
-- `POST {TRANSLATE_ENDPOINT}`
-- JSON `{"target":"ja","texts":["Cat","Dog"]}`
-- JSON `{"textsTranslated":["猫","犬"]}` を返す
-
-## 設定
-`app.js` の以下を埋めてください：
-
-```js
-const TAGGER_ENDPOINT = "https://YOUR_DOMAIN";
-const TRANSLATE_ENDPOINT = "https://YOUR_DOMAIN/translate"; // optional
+- Body: `multipart/form-data` with field `image` (jpeg/png/webp)
+- Response:
+```json
+{
+  "topk": 30,
+  "tags": [{"mid":"/m/..","label_en":"Cat","score":0.73,"rank":1}]
+}
 ```
 
-## GitHub Pages
-1. このフォルダをリポジトリに置く
-2. Settings → Pages → Branch を設定
-3. `https://{user}.github.io/{repo}/` でアクセス
+### Translate (optional)
+`POST /translate`
 
-## メモ
-- iPhone Safariは、ユーザー操作（タップ）をきっかけにしないと発音が動かないことがあるため、タグのタップで発音するUIにしています。
-- 発音品質は端末のTTS音声に依存します（必要なら端末側の音声設定を調整してください）。
+- JSON:
+```json
+{ "target":"ja", "texts":["Cat","Dog"] }
+```
+- Response:
+```json
+{ "textsTranslated":["猫","犬"] }
+```
+
+Configure a provider:
+- DeepL: set `DEEPL_AUTH_KEY`
+- LibreTranslate: set `LIBRETRANSLATE_URL` (and optional `LIBRETRANSLATE_API_KEY`)
+
+## Run (local)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python build_vocab.py
+uvicorn app:app --host 0.0.0.0 --port 8080
+```
+
+Test:
+```bash
+curl -X POST "http://localhost:8080/tagger?topk=30" -F "image=@test.jpg"
+```
+
+## Docker
+
+```bash
+docker build -t photo-translator-server .
+docker run --rm -p 8080:8080 photo-translator-server
+```
+
+### GPU (recommended)
+Run on a GPU machine and ensure your runtime passes the GPU through (e.g., NVIDIA Container Toolkit).
+This app auto-detects CUDA.
+
+## Environment variables
+
+- `CLIP_MODEL` (default: ViT-B-32)
+- `CLIP_PRETRAINED` (default: laion2b_s34b_b79k)
+- `PROMPT_TEMPLATE` (default: `a photo of {}`)
+- `ALLOWED_ORIGINS` (default: `*`) comma-separated
+- `DEEPL_AUTH_KEY` / `DEEPL_API_URL`
+- `LIBRETRANSLATE_URL` / `LIBRETRANSLATE_API_KEY`
