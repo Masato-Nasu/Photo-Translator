@@ -18,8 +18,9 @@ const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
 
 // ====== CONFIG ======
-const TAGGER_ENDPOINT = "https://rehab-ensure-upc-feb.trycloudflare.com";
-const TRANSLATE_ENDPOINT = "https://rehab-ensure-upc-feb.trycloudflare.com/translate";
+const TAGGER_ENDPOINT = "https://https://huggingface.co/spaces/mazzGOGO/Photo-Translator/tree/main.hf.space";
+const TRANSLATE_ENDPOINT = "https://https://huggingface.co/spaces/mazzGOGO/Photo-Translator/tree/main.hf.space/translate";
+
 
 // Image upload settings
 const MAX_DIM = 1024;      // resize long edge to reduce bandwidth
