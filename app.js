@@ -73,19 +73,34 @@ function renderTags(tags){
   }
   btnSpeakTop.disabled = false;
 
+  const showEnglish = (lastPrimary !== "en");
+
   for (const t of tags){
     const row = document.createElement("div");
     row.className = "tag";
+
+    const enLine = (showEnglish && t.labelEn && t.labelEn !== t.label)
+      ? `<div class="en" style="font-size:12px; opacity:.78; word-break:break-word;">${escapeHtml(t.labelEn)}</div>`
+      : "";
+
     row.innerHTML = `
       <div style="min-width:0">
         <div class="label">${escapeHtml(t.label)}</div>
+        ${enLine}
         <div class="score">${(t.score*100).toFixed(1)}%</div>
       </div>
       <button class="sbtn" aria-label="speak">🔊</button>
     `;
-    const say = () => speak(t.label, lastPrimary);
-    row.querySelector(".sbtn").onclick = say;
-    row.querySelector(".label").onclick = say;
+
+    const sayPrimary = () => speak(t.label, lastPrimary);
+    row.querySelector(".sbtn").onclick = sayPrimary;
+    row.querySelector(".label").onclick = sayPrimary;
+
+    const enEl = row.querySelector(".en");
+    if (enEl){
+      enEl.onclick = () => speak(t.labelEn, "en"); // tap English line to hear English
+    }
+
     tagsEl.appendChild(row);
   }
 }
@@ -201,10 +216,14 @@ async function postTags(topk){
   if (!r.ok) throw new Error("tagger http " + r.status);
   const j = await r.json();
 
-  const tags = (j.tags || []).map(x => ({
-    label: x.label_en ?? x.label ?? "",
-    score: Number(x.score ?? 0)
-  }));
+  const tags = (j.tags || []).map(x => {
+    const en = x.label_en ?? x.label ?? "";
+    return {
+      label: en,      // current display label (may be translated later)
+      labelEn: en,    // always keep English
+      score: Number(x.score ?? 0)
+    };
+  });
   return tags.filter(t => t.label);
 }
 
@@ -251,7 +270,7 @@ btnAnalyze.onclick = async () => {
         const texts = tagsEn.map(t => t.label);
         const tr = await translateTexts(texts, langToTranslateTarget(primary));
         if (tr && tr.length){
-          tagsPrimary = tagsEn.map((t,i)=>({ label: tr[i] || t.label, score: t.score }));
+          tagsPrimary = tagsEn.map((t,i)=>({ label: tr[i] || t.label, labelEn: t.labelEn || t.label, score: t.score }));
         } else {
           setStatus("翻訳に失敗したため英語で表示しています。");
         }
