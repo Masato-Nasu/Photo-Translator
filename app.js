@@ -18,9 +18,9 @@ const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
 
 // ====== CONFIG ======
-const TAGGER_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/";
-const TRANSLATE_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/translate";
-
+const HF_SPACE_BASE = "https://mazzgogo-photo-translator.hf.space";
+const TAGGER_ENDPOINT = HF_SPACE_BASE;
+const TRANSLATE_ENDPOINT = `${HF_SPACE_BASE}/translate`;
 
 // Image upload settings
 const MAX_DIM = 1024;      // resize long edge to reduce bandwidth
@@ -40,6 +40,12 @@ function langToTTS(lang){
   if (lang === "zh") return "zh-CN";
   if (lang === "ko") return "ko-KR";
   return "en-US";
+}
+
+function langToTranslateTarget(lang){
+  // Translation engines often prefer explicit locale for Chinese.
+  if (lang === "zh") return "zh-CN";
+  return lang; // en / ja / ko
 }
 
 function speak(text, lang){
@@ -243,7 +249,7 @@ btnAnalyze.onclick = async () => {
       } else {
         setStatus("翻訳中…");
         const texts = tagsEn.map(t => t.label);
-        const tr = await translateTexts(texts, primary);
+        const tr = await translateTexts(texts, langToTranslateTarget(primary));
         if (tr && tr.length){
           tagsPrimary = tagsEn.map((t,i)=>({ label: tr[i] || t.label, score: t.score }));
         } else {
