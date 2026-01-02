@@ -18,8 +18,8 @@ const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
 
 // ====== CONFIG ======
-const TAGGER_ENDPOINT = "";     // e.g. "https://your-domain.example"  (expects /tagger)
-const TRANSLATE_ENDPOINT = "";  // e.g. "https://your-domain.example/translate" (optional)
+const TAGGER_ENDPOINT = "https://github.com/Masato-Nasu/Photo-Translator";     // e.g. "https://your-domain.example"  (expects /tagger)
+const TRANSLATE_ENDPOINT = "https://github.com/Masato-Nasu/Photo-Translator";  // e.g. "https://your-domain.example/translate" (optional)
 
 // Image upload settings
 const MAX_DIM = 1024;      // resize long edge to reduce bandwidth
