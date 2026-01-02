@@ -1,93 +1,73 @@
----
-title: Photo Translator API
-sdk: docker
----
+Photo Translator (PWA)
 
-# Photo-Translator Server (Open Images ~20k vocab Top-K)
+カメラで撮ったもの（または画像）から **タグ（約20,932カテゴリ）**を推定し、日本語 / 中国語 / 韓国語 / 英語で表示します。
+学習用途向けに、英語は常に併記され、タップで **発音（TTS）**できます。
 
-This server provides:
-- `POST /tagger?topk=30` : Image -> Top-K tags (English labels) using CLIP ranking over Open Images class descriptions.
-- `POST /translate` (optional) : Translate English labels to `ja/zh/ko` for the PWA.
+App (GitHub Pages): https://masato-nasu.github.io/Photo-Translator/
 
-## Endpoints
+使い方（基本）
+1) 開く
 
-### Health
-`GET /health`
+ブラウザでアプリを開きます（スマホ推奨）。
 
-### Tagger
-`POST /tagger?topk=30`
+2) カメラ権限を許可（初回のみ）
 
-- Body: `multipart/form-data` with field `image` (jpeg/png/webp)
-- Response:
-```json
-{
-  "topk": 30,
-  "tags": [{"mid":"/m/..","label_en":"Cat","score":0.73,"rank":1}]
-}
-```
+「カメラの使用を許可しますか？」→ 許可 を選びます。
 
-### Translate (optional)
-`POST /translate`
+3) 撮影 → 解析
 
-- JSON:
-```json
-{ "target":"ja", "texts":["Cat","Dog"] }
-```
-- Response:
-```json
-{ "textsTranslated":["猫","犬"] }
-```
+📸 撮影（Capture） を押す
 
-Configure a provider:
-- DeepL: set `DEEPL_AUTH_KEY`
-- LibreTranslate: set `LIBRETRANSLATE_URL` (and optional `LIBRETRANSLATE_API_KEY`)
+写った状態で 🔎 解析（Analyze） を押す
 
-## Run (local)
+タグが一覧で出ます（スコア付き）
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python build_vocab.py
-uvicorn app:app --host 0.0.0.0 --port 8080
-```
+画像を撮り直したい場合は 再撮影（Retake） を使います。
 
-Test:
-```bash
-curl -X POST "http://localhost:8080/tagger?topk=30" -F "image=@test.jpg"
-```
+使い方（画像ファイルから）
 
-## Docker
+🖼 画像を選択（Choose image） で端末内の画像を選ぶ
 
-```bash
-docker build -t photo-translator-server .
-docker run --rm -p 8080:8080 photo-translator-server
-```
+🔎 解析（Analyze） を押す
 
-### GPU (recommended)
-Run on a GPU machine and ensure your runtime passes the GPU through (e.g., NVIDIA Container Toolkit).
-This app auto-detects CUDA.
+言語の切り替え
 
-## Environment variables
+画面の言語選択（Primary）で切り替えできます。
 
-- `CLIP_MODEL` (default: ViT-B-32)
-- `CLIP_PRETRAINED` (default: laion2b_s34b_b79k)
-- `PROMPT_TEMPLATE` (default: `a photo of {}`)
-- `ALLOWED_ORIGINS` (default: `*`) comma-separated
-- `DEEPL_AUTH_KEY` / `DEEPL_API_URL`
-- `LIBRETRANSLATE_URL` / `LIBRETRANSLATE_API_KEY`
+日本語 / 中文 / 한국어 / English
 
-## Free translation (no key)
+英語は常に併記
 
-If you don't set `DEEPL_AUTH_KEY` and don't set `LIBRETRANSLATE_URL`, the server will fall back to **MyMemory** (free online MT).
+日本語・中国語・韓国語を選んでいるときも、各タグの下に 英語（English） を併記します。
+（学習で迷子になりにくい設計です）
 
-- Uses: `https://api.mymemory.translated.net/get`
-- Optional: set `MYMEMORY_EMAIL` to increase the free daily quota (MyMemory uses this as the `de=` contact parameter).
-- Note: MyMemory has daily limits and quality varies (it's a translation memory + MT). The server caches translations to `data/translation_cache.json` to reduce repeated calls.
+発音（TTS）
 
-Example (PowerShell):
+タグ（大きい文字の方）をタップ → 選択中言語で発音
 
-```powershell
-$env:MYMEMORY_EMAIL="you@example.com"   # optional
-python -m uvicorn app:app --host 0.0.0.0 --port 8080
-```
+英語併記の行をタップ → 英語で発音
+
+連続発音（Speak top） → 上位タグを順番に読み上げ
+
+表示数（Top-K）
+
+Top-K を大きくすると表示するタグ数が増えます。
+スマホではまず 50〜200 あたりがおすすめです。
+
+PWAとして使う（ホーム画面に追加）
+iPhone（Safari）
+
+共有ボタン → 「ホーム画面に追加」
+
+追加後、ホーム画面から起動
+
+Android（Chrome）
+
+メニュー → 「アプリをインストール」 / 「ホーム画面に追加」
+
+追加後、ホーム画面から起動
+
+うまく動かないとき（よくある原因）
+カメラが起動しない
+
+カメラ権限が拒否になっていないか確認
