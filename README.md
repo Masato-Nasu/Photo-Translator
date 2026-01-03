@@ -1,41 +1,73 @@
-# Photo Tagger PWA (Top-K + Primary-only Pronunciation)
+Photo Translator (PWA)
 
-スマホで **撮影した1枚**（または画像ファイル）を解析し、タグTop-Kを表示し、**Primary言語だけ**で発音（TTS）します。
+カメラで撮ったもの（または画像）から **タグ（約20,932カテゴリ）**を推定し、日本語 / 中国語 / 韓国語 / 英語で表示します。
+学習用途向けに、英語は常に併記され、タップで **発音（TTS）**できます。
 
-## できること
-- 📸 撮影 → 🔎 タグ解析（画像全体のTop-Kタグ）
-- 🖼 画像読み込み → 🔎 タグ解析
-- タグをタップ（または🔊）で **Primary言語で発音**
-- 🔊 上位を連続発音（最大10個）
+App (GitHub Pages): https://masato-nasu.github.io/Photo-Translator/
 
-## 必要なもの（サーバ）
-このPWAはタグ生成をサーバに依存します。
+使い方（基本）
+1) 開く
 
-### タグ生成
-- `POST {TAGGER_ENDPOINT}/tagger?topk=30`
-- `multipart/form-data` で `image` を受け取り
-- JSONで `{"tags":[{"label_en":"Cat","score":0.73}, ...]}` を返す
+ブラウザでアプリを開きます（スマホ推奨）。
 
-（例：Open Images 20,638語彙をCLIPでランキングしてTop-Kを返すサーバ）
+2) カメラ権限を許可（初回のみ）
 
-### （任意）翻訳
-- `POST {TRANSLATE_ENDPOINT}`
-- JSON `{"target":"ja","texts":["Cat","Dog"]}`
-- JSON `{"textsTranslated":["猫","犬"]}` を返す
+「カメラの使用を許可しますか？」→ 許可 を選びます。
 
-## 設定
-`app.js` の以下を埋めてください：
+3) 撮影 → 解析
 
-```js
-const TAGGER_ENDPOINT = "https://YOUR_DOMAIN";
-const TRANSLATE_ENDPOINT = "https://YOUR_DOMAIN/translate"; // optional
-```
+📸 撮影（Capture） を押す
 
-## GitHub Pages
-1. このフォルダをリポジトリに置く
-2. Settings → Pages → Branch を設定
-3. `https://{user}.github.io/{repo}/` でアクセス
+写った状態で 🔎 解析（Analyze） を押す
 
-## メモ
-- iPhone Safariは、ユーザー操作（タップ）をきっかけにしないと発音が動かないことがあるため、タグのタップで発音するUIにしています。
-- 発音品質は端末のTTS音声に依存します（必要なら端末側の音声設定を調整してください）。
+タグが一覧で出ます（スコア付き）
+
+画像を撮り直したい場合は 再撮影（Retake） を使います。
+
+使い方（画像ファイルから）
+
+🖼 画像を選択（Choose image） で端末内の画像を選ぶ
+
+🔎 解析（Analyze） を押す
+
+言語の切り替え
+
+画面の言語選択（Primary）で切り替えできます。
+
+日本語 / 中文 / 한국어 / English
+
+英語は常に併記
+
+日本語・中国語・韓国語を選んでいるときも、各タグの下に 英語（English） を併記します。
+（学習で迷子になりにくい設計です）
+
+発音（TTS）
+
+タグ（大きい文字の方）をタップ → 選択中言語で発音
+
+英語併記の行をタップ → 英語で発音
+
+連続発音（Speak top） → 上位タグを順番に読み上げ
+
+表示数（Top-K）
+
+Top-K を大きくすると表示するタグ数が増えます。
+スマホではまず 50〜200 あたりがおすすめです。
+
+PWAとして使う（ホーム画面に追加）
+iPhone（Safari）
+
+共有ボタン → 「ホーム画面に追加」
+
+追加後、ホーム画面から起動
+
+Android（Chrome）
+
+メニュー → 「アプリをインストール」 / 「ホーム画面に追加」
+
+追加後、ホーム画面から起動
+
+うまく動かないとき（よくある原因）
+カメラが起動しない
+
+カメラ権限が拒否になっていないか確認
