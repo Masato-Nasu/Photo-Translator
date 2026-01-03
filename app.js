@@ -40,11 +40,33 @@ function langToTTS(lang){
   return "en-US";
 }
 
+
+let _voices = [];
+function refreshVoices(){
+  try{ _voices = speechSynthesis.getVoices() || []; }catch(e){ _voices = []; }
+}
+function pickVoice(langTag){
+  refreshVoices();
+  const lt = (langTag || "").toLowerCase();
+  // Prefer exact or prefix match
+  let v = _voices.find(v => (v.lang || "").toLowerCase() === lt);
+  if (!v) v = _voices.find(v => (v.lang || "").toLowerCase().startsWith(lt.split("-")[0]));
+  return v || null;
+}
+if (typeof speechSynthesis !== "undefined"){
+  // Some browsers populate voices async
+  speechSynthesis.onvoiceschanged = refreshVoices;
+  refreshVoices();
+}
+
 function speak(text, lang){
   if (!text) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = langToTTS(lang);
+  const tag = langToTTS(lang);
+  u.lang = tag;
+  const v = pickVoice(tag);
+  if (v) u.voice = v;
   speechSynthesis.speak(u);
 }
 
@@ -76,37 +98,68 @@ function renderTags(tags){
         <div class="tleft">
           <span class="tlang">🇯🇵 JP</span>
           <span class="tmain">${escapeHtml(ja || "—")}</span>
-          <span class="tgloss">(${escapeHtml(en)})</span>
+          <span class="tgloss en-gloss" title="Speak English / 英語で発音">(${escapeHtml(en)})</span>
         </div>
-        <button class="sbtn" aria-label="speak-ja">🔊</button>
+        <div class="tright">
+          <button class="sbtn" aria-label="speak-ja">🔊</button>
+          <button class="sbtn sbtn-en" aria-label="speak-en">🔊EN</button>
+        </div>
       </div>
       <div class="tline" data-lang="zh">
         <div class="tleft">
           <span class="tlang">🇨🇳 ZH</span>
           <span class="tmain">${escapeHtml(zh || "—")}</span>
-          <span class="tgloss">(${escapeHtml(en)})</span>
+          <span class="tgloss en-gloss" title="Speak English / 英語で発音">(${escapeHtml(en)})</span>
         </div>
-        <button class="sbtn" aria-label="speak-zh">🔊</button>
+        <div class="tright">
+          <button class="sbtn" aria-label="speak-zh">🔊</button>
+          <button class="sbtn sbtn-en" aria-label="speak-en">🔊EN</button>
+        </div>
       </div>
       <div class="tline" data-lang="ko">
         <div class="tleft">
           <span class="tlang">🇰🇷 KO</span>
           <span class="tmain">${escapeHtml(ko || "—")}</span>
-          <span class="tgloss">(${escapeHtml(en)})</span>
+          <span class="tgloss en-gloss" title="Speak English / 英語で発音">(${escapeHtml(en)})</span>
         </div>
-        <button class="sbtn" aria-label="speak-ko">🔊</button>
+        <div class="tright">
+          <button class="sbtn" aria-label="speak-ko">🔊</button>
+          <button class="sbtn sbtn-en" aria-label="speak-en">🔊EN</button>
+        </div>
       </div>
       <div class="score">${(t.score*100).toFixed(1)}%</div>
     `;
 
     const bindLine = (lang, textGetter) => {
       const line = row.querySelector(`.tline[data-lang="${lang}"]`);
-      const btn = line.querySelector(".sbtn");
+      const btnMain = line.querySelector(".sbtn");
+      const btnEn = line.querySelector(".sbtn-en");
       const label = line.querySelector(".tmain");
-      const say = () => {
-        const txt = textGetter();
-        if (txt && txt !== "—") speak(txt, lang);
+      const glossEn = line.querySelector(".en-gloss");
+
+      const sayMain = () => {
+        const txt = (textGetter() || "").trim();
+        if (!txt || txt === "—") return;
+        speak(txt, lang);
       };
+      const sayEn = () => {
+        const txt = (en || "").trim();
+        if (!txt || txt === "—") return;
+        speak(txt, "en");
+      };
+
+      btnMain.onclick = sayMain;
+      label.onclick = sayMain;
+
+      if (btnEn) btnEn.onclick = sayEn;
+      if (glossEn) glossEn.onclick = sayEn;
+
+      // Disable speak if missing
+      const mainTxt = (textGetter() || "").trim();
+      if (!mainTxt || mainTxt === "—") btnMain.disabled = true;
+      const enTxt = (en || "").trim();
+      if (!enTxt || enTxt === "—") { if (btnEn) btnEn.disabled = true; }
+    };
       btn.onclick = say;
       label.onclick = say;
       // Disable speak if missing
