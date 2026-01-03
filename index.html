@@ -12,10 +12,9 @@
       --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12);
       --btn:rgba(255,255,255,.08); --btnb:rgba(255,255,255,.14);
     }
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
+    html,body{min-height:100%;margin:0;background:var(--bg);color:var(--fg);
       font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP",sans-serif;}
-    #wrap{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr auto;gap:10px;
-      padding:10px;box-sizing:border-box;}
+    #wrap{position:relative;min-height:100vh;display:flex;flex-direction:column;gap:10px;padding:10px;box-sizing:border-box;}
     .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:10px;}
     .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
@@ -26,16 +25,18 @@
     button{cursor:pointer}
     button:active{transform:translateY(1px)}
     button:disabled{opacity:.5;cursor:not-allowed}
-    #stage{position:relative;display:grid;place-items:center;border-radius:14px;overflow:hidden;background:#000;}
+    #stage{position:relative;display:grid;place-items:center;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:4/3;max-height:60vh;}
     video,canvas{width:100%;height:100%;object-fit:cover;background:#000}
     canvas{display:none}
-    #tags{max-height:30vh;overflow:auto}
+    #tags{max-height:none;overflow:visible}
     .tag{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;
       border-bottom:1px solid rgba(255,255,255,.08);}
     .label{font-size:16px;font-weight:700;line-height:1.2;cursor:pointer}
     .score{color:var(--muted);font-size:12px;white-space:nowrap}
     .muted{color:var(--muted);font-size:12px}
     .pill{display:inline-block;padding:2px 8px;border:1px solid rgba(255,255,255,.18);border-radius:999px;color:var(--muted)}
+    @media (min-width: 720px){ #wrap{max-width:760px;margin:0 auto;} }
+
   </style>
 </head>
 <body>
@@ -82,10 +83,7 @@
           <b>Tags</b>
           <span class="muted">（タップで発音）</span>
         </div>
-        <div class="row">
-          <button id="btnSpeakTop" disabled>🔊 上位を連続発音</button>
-        </div>
-      </div>
+</div>
       <div id="tags" class="muted">まだ解析していません。</div>
       <div class="muted" style="margin-top:8px">
         ※ 発音は端末のTTS音声に依存します（iPhone/Androidで差が出ます）。

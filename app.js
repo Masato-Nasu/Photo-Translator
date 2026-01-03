@@ -9,7 +9,7 @@ const ctx = shot.getContext("2d");
 const btnCapture = document.getElementById("btnCapture");
 const btnRetake  = document.getElementById("btnRetake");
 const btnAnalyze = document.getElementById("btnAnalyze");
-const btnSpeakTop= document.getElementById("btnSpeakTop");
+const btnSpeakTop = document.getElementById("btnSpeakTop");
 
 const file = document.getElementById("file");
 const primarySel = document.getElementById("primary");
@@ -18,9 +18,9 @@ const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
 
 // ====== CONFIG ======
-const HF_SPACE_BASE = "https://mazzgogo-photo-translator.hf.space";
-const TAGGER_ENDPOINT = HF_SPACE_BASE;
-const TRANSLATE_ENDPOINT = `${HF_SPACE_BASE}/translate`;
+const TAGGER_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/";
+const TRANSLATE_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/translate";
+
 
 // Image upload settings
 const MAX_DIM = 1024;      // resize long edge to reduce bandwidth
@@ -34,36 +34,6 @@ let lastPrimary = "en";
 // ---------- helpers ----------
 function setStatus(s){ statusEl.textContent = s; }
 
-function bi(jp,en){ return `${jp} / ${en}`; }
-
-function initUI(){
-  // Buttons: add bilingual tooltips / accessibility labels
-  const setBtn = (el, jp, en) => {
-    if (!el) return;
-    el.title = bi(jp,en);
-    try{ el.setAttribute("aria-label", `${en} / ${jp}`); }catch(e){}
-  };
-  setBtn(btnCapture, "撮影", "Capture");
-  setBtn(btnAnalyze, "解析", "Analyze");
-  setBtn(btnRetake,  "再撮影", "Retake");
-  setBtn(btnSpeakTop,"連続発音", "Speak top");
-  if (file){ file.title = bi("画像を選択", "Choose image"); }
-  if (topkSel){ topkSel.title = bi("タグ数(Top-K)", "Top-K tags"); }
-  if (primarySel && primarySel.options){
-    const map = {
-      "ja": {jp:"日本語", en:"Japanese"},
-      "en": {jp:"英語", en:"English"},
-      "zh": {jp:"中文", en:"Chinese"},
-      "ko": {jp:"한국어", en:"Korean"},
-    };
-    for (const opt of primarySel.options){
-      const v = opt.value;
-      if (map[v]) opt.textContent = `${map[v].jp} / ${map[v].en}`;
-    }
-  }
-}
-
-
 function langToTTS(lang){
   if (lang === "ja") return "ja-JP";
   if (lang === "en") return "en-US";
@@ -72,44 +42,11 @@ function langToTTS(lang){
   return "en-US";
 }
 
-function langToTranslateTarget(lang){
-  // Translation engines often prefer explicit locale for Chinese.
-  if (lang === "zh") return "zh-CN";
-  return lang; // en / ja / ko
-}
-
-// ---------- TTS voice selection (fix: some browsers ignore u.lang and stick to default voice) ----------
-let TTS_VOICES = [];
-function refreshVoices(){
-  try{ TTS_VOICES = speechSynthesis.getVoices() || []; }catch(e){ TTS_VOICES = []; }
-}
-refreshVoices();
-try{ speechSynthesis.addEventListener('voiceschanged', refreshVoices); }catch(e){}
-
-function pickVoice(lang){
-  const want = (langToTTS(lang) || '').toLowerCase(); // e.g. en-us
-  const short = want.split('-')[0];
-  const voices = TTS_VOICES || [];
-  if (!voices.length) return null;
-  // 1) exact locale match
-  let v = voices.find(x => (x.lang || '').toLowerCase() === want);
-  if (v) return v;
-  // 2) language-only match (prefer localService when available)
-  const candidates = voices.filter(x => (x.lang || '').toLowerCase().startsWith(short));
-  if (!candidates.length) return null;
-  v = candidates.find(x => x.localService);
-  return v || candidates[0];
-}
-
 function speak(text, lang){
   if (!text) return;
-  // Ensure voices are loaded (some browsers populate lazily)
-  refreshVoices();
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  const v = pickVoice(lang);
-  if (v) u.voice = v;
-  u.lang = (v?.lang) ? v.lang : langToTTS(lang);
+  u.lang = langToTTS(lang);
   speechSynthesis.speak(u);
 }
 
@@ -124,40 +61,25 @@ function enableActions(enabled){
 function renderTags(tags){
   tagsEl.innerHTML = "";
   if (!tags.length){
-    tagsEl.textContent = "タグが取得できませんでした。 / Couldn’t get tags.";
-    btnSpeakTop.disabled = true;
+    tagsEl.textContent = "タグが取得できませんでした。";
+    if (btnSpeakTop) btnSpeakTop.disabled = true;
     return;
   }
-  btnSpeakTop.disabled = false;
-
-  const showEnglish = (lastPrimary !== "en");
+  if (btnSpeakTop) btnSpeakTop.disabled = false;
 
   for (const t of tags){
     const row = document.createElement("div");
     row.className = "tag";
-
-    const enLine = (showEnglish && t.labelEn && t.labelEn !== t.label)
-      ? `<div class="en" style="font-size:12px; opacity:.78; word-break:break-word;">${escapeHtml(t.labelEn)}</div>`
-      : "";
-
     row.innerHTML = `
       <div style="min-width:0">
         <div class="label">${escapeHtml(t.label)}</div>
-        ${enLine}
         <div class="score">${(t.score*100).toFixed(1)}%</div>
       </div>
       <button class="sbtn" aria-label="speak">🔊</button>
     `;
-
-    const sayPrimary = () => speak(t.label, lastPrimary);
-    row.querySelector(".sbtn").onclick = sayPrimary;
-    row.querySelector(".label").onclick = sayPrimary;
-
-    const enEl = row.querySelector(".en");
-    if (enEl){
-      enEl.onclick = () => speak(t.labelEn, "en"); // tap English line to hear English
-    }
-
+    const say = () => speak(t.label, lastPrimary);
+    row.querySelector(".sbtn").onclick = say;
+    row.querySelector(".label").onclick = say;
     tagsEl.appendChild(row);
   }
 }
@@ -169,10 +91,10 @@ async function initCam(){
     cam.srcObject = stream;
     await new Promise(res => cam.onloadedmetadata = res);
     await cam.play();
-    setStatus("準備完了：📸で撮影 → 🔎でタグ解析 / Ready: 📸 Capture → 🔎 Analyze tags");
+    setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
   }catch(e){
     console.error(e);
-    setStatus("カメラを起動できませんでした。HTTPS / 権限 / ブラウザ設定を確認してください。 / Couldn’t start the camera. Check HTTPS / permissions / browser settings.");
+    setStatus("カメラを起動できませんでした。HTTPS / 権限 / ブラウザ設定を確認してください。");
   }
 }
 
@@ -180,7 +102,7 @@ function freezeFrame(){
   const w = cam.videoWidth || 0;
   const h = cam.videoHeight || 0;
   if (!w || !h){
-    setStatus("カメラ映像が取得できませんでした。 / Couldn’t get camera stream.");
+    setStatus("カメラ映像が取得できませんでした。");
     return;
   }
   shot.width = w; shot.height = h;
@@ -193,7 +115,7 @@ function freezeFrame(){
   btnCapture.style.display = "none";
   btnRetake.style.display = "inline-block";
   enableActions(true);
-  setStatus("撮影しました：🔎で解析 / Captured: tap 🔎 to analyze");
+  setStatus("撮影しました：🔎で解析");
 }
 
 function unfreeze(){
@@ -205,20 +127,15 @@ function unfreeze(){
   btnRetake.style.display = "none";
 
   enableActions(false);
-  btnSpeakTop.disabled = true;
+  if (btnSpeakTop) btnSpeakTop.disabled = true;
 
-  tagsEl.textContent = "まだ解析していません。 / Not analyzed yet.";
+  tagsEl.textContent = "まだ解析していません。";
   lastTags = [];
-  setStatus("準備完了：📸で撮影 → 🔎でタグ解析 / Ready: 📸 Capture → 🔎 Analyze tags");
+  setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
 }
 
 btnCapture.onclick = freezeFrame;
 btnRetake.onclick = unfreeze;
-
-// Keep TTS language in sync with UI selection
-primarySel.addEventListener("change", () => {
-  lastPrimary = primarySel.value || "en";
-});
 
 // ---------- file load ----------
 file.addEventListener("change", async () => {
@@ -238,7 +155,7 @@ file.addEventListener("change", async () => {
     btnRetake.style.display = "inline-block";
     enableActions(true);
 
-    setStatus("画像を読み込みました：🔎で解析 / Image loaded: tap 🔎 to analyze");
+    setStatus("画像を読み込みました：🔎で解析");
   };
   img.src = URL.createObjectURL(f);
 });
@@ -278,14 +195,10 @@ async function postTags(topk){
   if (!r.ok) throw new Error("tagger http " + r.status);
   const j = await r.json();
 
-  const tags = (j.tags || []).map(x => {
-    const en = x.label_en ?? x.label ?? "";
-    return {
-      label: en,      // current display label (may be translated later)
-      labelEn: en,    // always keep English
-      score: Number(x.score ?? 0)
-    };
-  });
+  const tags = (j.tags || []).map(x => ({
+    label: x.label_en ?? x.label ?? "",
+    score: Number(x.score ?? 0)
+  }));
   return tags.filter(t => t.label);
 }
 
@@ -304,21 +217,21 @@ async function translateTexts(texts, target){
 btnAnalyze.onclick = async () => {
   try{
     if (!frozen){
-      setStatus("まず📸で撮影するか、🖼で画像を読み込んでください。 / Capture (📸) or load an image (🖼) first.");
+      setStatus("まず📸で撮影するか、🖼で画像を読み込んでください。");
       return;
     }
     const topk = Number(topkSel.value || 30);
     const primary = primarySel.value || "en";
     lastPrimary = primary;
 
-    setStatus("タグ解析中… / Analyzing tags…");
-    tagsEl.textContent = "解析中… / Working…";
-    btnSpeakTop.disabled = true;
+    setStatus("タグ解析中…");
+    tagsEl.textContent = "解析中…";
+    if (btnSpeakTop) btnSpeakTop.disabled = true;
 
     const tagsEn = await postTags(topk);
     if (!tagsEn.length){
       renderTags([]);
-      setStatus("タグが空でした。 / No tags returned.");
+      setStatus("タグが空でした。");
       return;
     }
 
@@ -326,54 +239,51 @@ btnAnalyze.onclick = async () => {
 
     if (primary !== "en"){
       if (!TRANSLATE_ENDPOINT){
-        setStatus("翻訳API未設定のため英語で表示しています（TRANSLATE_ENDPOINTを設定してください） / Translation not configured; showing English (set TRANSLATE_ENDPOINT).");
+        setStatus("翻訳API未設定のため英語で表示しています（TRANSLATE_ENDPOINTを設定してください）");
       } else {
-        setStatus("翻訳中… / Translating…");
+        setStatus("翻訳中…");
         const texts = tagsEn.map(t => t.label);
-        const tr = await translateTexts(texts, langToTranslateTarget(primary));
+        const tr = await translateTexts(texts, primary);
         if (tr && tr.length){
-          tagsPrimary = tagsEn.map((t,i)=>({ label: tr[i] || t.label, labelEn: t.labelEn || t.label, score: t.score }));
+          tagsPrimary = tagsEn.map((t,i)=>({ label: tr[i] || t.label, score: t.score }));
         } else {
-          setStatus("翻訳に失敗したため英語で表示しています。 / Translation failed; showing English.");
+          setStatus("翻訳に失敗したため英語で表示しています。");
         }
       }
     }
 
     lastTags = tagsPrimary;
     renderTags(tagsPrimary);
-    setStatus("完了：タグをタップすると発音します / Done: tap a tag to hear pronunciation.");
+    setStatus("完了：タグをタップすると発音します");
   }catch(e){
     console.error(e);
     if (String(e?.message || "").includes("TAGGER_ENDPOINT not set")){
-      setStatus("TAGGER_ENDPOINT が未設定です。app.js を開いてエンドポイントを設定してください。 / TAGGER_ENDPOINT is not set. Open app.js and set the endpoint.");
+      setStatus("TAGGER_ENDPOINT が未設定です。app.js を開いてエンドポイントを設定してください。");
     } else {
-      setStatus("エラー / Error: " + (e?.message || e));
+      setStatus("エラー：" + (e?.message || e));
     }
-    tagsEl.textContent = "エラーが発生しました。 / An error occurred.";
+    tagsEl.textContent = "エラーが発生しました。";
   }
 };
 
-// Speak top N sequentially (simple queue)
-btnSpeakTop.onclick = async () => {
+// Speak top N sequentially — removed from UI (kept optional)
+if (btnSpeakTop) btnSpeakTop.onclick = async () => {
   if (!lastTags.length) return;
   const n = Math.min(10, lastTags.length);
-  setStatus("連続発音中…（上位" + n + "） / Speaking… (Top " + n + ")");
+  setStatus("連続発音中…（上位" + n + "）");
 
   speechSynthesis.cancel();
 
   let i = 0;
   const speakNext = () => {
     if (i >= n){
-      setStatus("完了：タグをタップすると発音します / Done: tap a tag to hear pronunciation.");
+      setStatus("完了：タグをタップすると発音します");
       return;
     }
     const text = lastTags[i].label;
     i++;
     const u = new SpeechSynthesisUtterance(text);
-    refreshVoices();
-    const v = pickVoice(lastPrimary);
-    if (v) u.voice = v;
-    u.lang = (v?.lang) ? v.lang : langToTTS(lastPrimary);
+    u.lang = langToTTS(lastPrimary);
     u.onend = speakNext;
     u.onerror = speakNext;
     speechSynthesis.speak(u);
@@ -382,7 +292,6 @@ btnSpeakTop.onclick = async () => {
 };
 
 // Kickoff
-initUI();
 initCam();
 
 // PWA service worker
