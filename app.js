@@ -9,10 +9,8 @@ const ctx = shot.getContext("2d");
 const btnCapture = document.getElementById("btnCapture");
 const btnRetake  = document.getElementById("btnRetake");
 const btnAnalyze = document.getElementById("btnAnalyze");
-const btnSpeakTop= document.getElementById("btnSpeakTop");
 
 const file = document.getElementById("file");
-const primarySel = document.getElementById("primary");
 const topkSel = document.getElementById("topk");
 const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
@@ -29,7 +27,7 @@ const JPEG_QUALITY = 0.86;
 let stream = null;
 let frozen = false;
 let lastTags = []; // [{label, score}] in CURRENT primary language
-let lastPrimary = "en";
+let lastPrimary = "en"; // kept for compatibility (not used)
 
 // ---------- helpers ----------
 function setStatus(s){ statusEl.textContent = s; }
@@ -62,24 +60,63 @@ function renderTags(tags){
   tagsEl.innerHTML = "";
   if (!tags.length){
     tagsEl.textContent = "タグが取得できませんでした。";
-    btnSpeakTop.disabled = true;
     return;
   }
-  btnSpeakTop.disabled = false;
 
   for (const t of tags){
     const row = document.createElement("div");
     row.className = "tag";
+    const en = t.en || "";
+    const ja = t.ja || "";
+    const zh = t.zh || "";
+    const ko = t.ko || "";
+
     row.innerHTML = `
-      <div style="min-width:0">
-        <div class="label">${escapeHtml(t.label)}</div>
-        <div class="score">${(t.score*100).toFixed(1)}%</div>
+      <div class="tline" data-lang="ja">
+        <div class="tleft">
+          <span class="tlang">🇯🇵 JP</span>
+          <span class="tmain">${escapeHtml(ja || "—")}</span>
+          <span class="tgloss">(${escapeHtml(en)})</span>
+        </div>
+        <button class="sbtn" aria-label="speak-ja">🔊</button>
       </div>
-      <button class="sbtn" aria-label="speak">🔊</button>
+      <div class="tline" data-lang="zh">
+        <div class="tleft">
+          <span class="tlang">🇨🇳 ZH</span>
+          <span class="tmain">${escapeHtml(zh || "—")}</span>
+          <span class="tgloss">(${escapeHtml(en)})</span>
+        </div>
+        <button class="sbtn" aria-label="speak-zh">🔊</button>
+      </div>
+      <div class="tline" data-lang="ko">
+        <div class="tleft">
+          <span class="tlang">🇰🇷 KO</span>
+          <span class="tmain">${escapeHtml(ko || "—")}</span>
+          <span class="tgloss">(${escapeHtml(en)})</span>
+        </div>
+        <button class="sbtn" aria-label="speak-ko">🔊</button>
+      </div>
+      <div class="score">${(t.score*100).toFixed(1)}%</div>
     `;
-    const say = () => speak(t.label, lastPrimary);
-    row.querySelector(".sbtn").onclick = say;
-    row.querySelector(".label").onclick = say;
+
+    const bindLine = (lang, textGetter) => {
+      const line = row.querySelector(`.tline[data-lang="${lang}"]`);
+      const btn = line.querySelector(".sbtn");
+      const label = line.querySelector(".tmain");
+      const say = () => {
+        const txt = textGetter();
+        if (txt && txt !== "—") speak(txt, lang);
+      };
+      btn.onclick = say;
+      label.onclick = say;
+      // Disable speak if missing
+      if (!textGetter() || textGetter() === "—") btn.disabled = true;
+    };
+
+    bindLine("ja", () => ja || "");
+    bindLine("zh", () => zh || "");
+    bindLine("ko", () => ko || "");
+
     tagsEl.appendChild(row);
   }
 }
@@ -127,7 +164,7 @@ function unfreeze(){
   btnRetake.style.display = "none";
 
   enableActions(false);
-  btnSpeakTop.disabled = true;
+  
 
   tagsEl.textContent = "まだ解析していません。";
   lastTags = [];
@@ -179,30 +216,6 @@ async function canvasToJpegBlob(canvas){
   return await new Promise(res => tmp.toBlob(res, "image/jpeg", JPEG_QUALITY));
 }
 
-
-function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-async function fetchWithTimeout(url, opts={}, ms=90000){
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  try{
-    return await fetch(url, { ...opts, signal: ctrl.signal });
-  }finally{
-    clearTimeout(t);
-  }
-}
-async function pingHealth(){
-  if (!TAGGER_ENDPOINT) return false;
-  const healthUrl = TAGGER_ENDPOINT.replace(/\/$/, "") + "/health";
-  try{
-    const r = await fetchWithTimeout(healthUrl, { method:"GET" }, 15000);
-    if (!r.ok) return false;
-    const j = await r.json().catch(() => null);
-    return !!(j && j.ok);
-  }catch(e){
-    return false;
-  }
-}
-
 // ---------- API ----------
 async function postTags(topk){
   if (!TAGGER_ENDPOINT){
@@ -215,7 +228,7 @@ async function postTags(topk){
   const url = new URL(TAGGER_ENDPOINT.replace(/\/$/, "") + "/tagger");
   url.searchParams.set("topk", String(topk));
 
-  const r = await fetchWithTimeout(url.toString(), { method:"POST", body: fd }, 90000);
+  const r = await fetch(url.toString(), { method:"POST", body: fd });
   if (!r.ok) throw new Error("tagger http " + r.status);
   const j = await r.json();
 
@@ -241,44 +254,54 @@ async function translateTexts(texts, target){
 btnAnalyze.onclick = async () => {
   try{
     if (!frozen){
-      setStatus("まず📸で撮影するか、🖼で画像を読み込んでください。");
+      setStatus("まず📸で撮影するか、🖼で画像を読み込んでください。 / Please capture (📸) or load an image (🖼).");
       return;
     }
     const topk = Number(topkSel.value || 30);
-    const primary = primarySel.value || "en";
-    lastPrimary = primary;
 
-    setStatus("タグ解析中…");
+    setStatus("タグ解析中… / Analyzing…");
     tagsEl.textContent = "解析中…";
-    btnSpeakTop.disabled = true;
 
     const tagsEn = await postTags(topk);
     if (!tagsEn.length){
       renderTags([]);
-      setStatus("タグが空でした。");
+      setStatus("タグが空でした。 / No tags.");
       return;
     }
 
-    let tagsPrimary = tagsEn;
+    // Always keep English labels as gloss, and translate to JA/ZH/KO.
+    const texts = tagsEn.map(t => t.label);
+    const out = tagsEn.map(t => ({ en: t.label, ja:"", zh:"", ko:"", score: t.score }));
 
-    if (primary !== "en"){
-      if (!TRANSLATE_ENDPOINT){
-        setStatus("翻訳API未設定のため英語で表示しています（TRANSLATE_ENDPOINTを設定してください）");
-      } else {
-        setStatus("翻訳中…");
-        const texts = tagsEn.map(t => t.label);
-        const tr = await translateTexts(texts, primary);
-        if (tr && tr.length){
-          tagsPrimary = tagsEn.map((t,i)=>({ label: tr[i] || t.label, score: t.score }));
-        } else {
-          setStatus("翻訳に失敗したため英語で表示しています。");
-        }
-      }
+    if (!TRANSLATE_ENDPOINT){
+      setStatus("翻訳API未設定のため英語のみ表示します（TRANSLATE_ENDPOINTを設定してください）。 / Translation API not set; showing English only.");
+      lastTags = out;
+      renderTags(out);
+      return;
     }
 
-    lastTags = tagsPrimary;
-    renderTags(tagsPrimary);
-    setStatus("完了：タグをタップすると発音します");
+    // Translate sequentially to reduce rate-limit issues.
+    setStatus("翻訳中… JP / Translating… JP");
+    let trJa = null;
+    try{ trJa = await translateTexts(texts, "ja"); }catch(e){ console.warn(e); }
+
+    setStatus("翻訳中… ZH / Translating… ZH");
+    let trZh = null;
+    try{ trZh = await translateTexts(texts, "zh"); }catch(e){ console.warn(e); }
+
+    setStatus("翻訳中… KO / Translating… KO");
+    let trKo = null;
+    try{ trKo = await translateTexts(texts, "ko"); }catch(e){ console.warn(e); }
+
+    for (let i=0;i<out.length;i++){
+      out[i].ja = (trJa && trJa[i]) ? trJa[i] : "";
+      out[i].zh = (trZh && trZh[i]) ? trZh[i] : "";
+      out[i].ko = (trKo && trKo[i]) ? trKo[i] : "";
+    }
+
+    lastTags = out;
+    renderTags(out);
+    setStatus("完了：各言語をタップで発音します / Done: tap each line to speak");
   }catch(e){
     console.error(e);
     if (String(e?.message || "").includes("TAGGER_ENDPOINT not set")){
@@ -290,30 +313,6 @@ btnAnalyze.onclick = async () => {
   }
 };
 
-// Speak top N sequentially (simple queue)
-btnSpeakTop.onclick = async () => {
-  if (!lastTags.length) return;
-  const n = Math.min(10, lastTags.length);
-  setStatus("連続発音中…（上位" + n + "）");
-
-  speechSynthesis.cancel();
-
-  let i = 0;
-  const speakNext = () => {
-    if (i >= n){
-      setStatus("完了：タグをタップすると発音します");
-      return;
-    }
-    const text = lastTags[i].label;
-    i++;
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = langToTTS(lastPrimary);
-    u.onend = speakNext;
-    u.onerror = speakNext;
-    speechSynthesis.speak(u);
-  };
-  speakNext();
-};
 
 // Kickoff
 initCam();

@@ -30,13 +30,21 @@
     video,canvas{width:100%;height:100%;object-fit:cover;background:#000}
     canvas{display:none}
     #tags{max-height:30vh;overflow:auto}
-    .tag{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;
-      border-bottom:1px solid rgba(255,255,255,.08);}
+    .tag{padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);} 
     .label{font-size:16px;font-weight:700;line-height:1.2;cursor:pointer}
     .score{color:var(--muted);font-size:12px;white-space:nowrap}
     .muted{color:var(--muted);font-size:12px}
     .pill{display:inline-block;padding:2px 8px;border:1px solid rgba(255,255,255,.18);border-radius:999px;color:var(--muted)}
-  </style>
+  
+    .tline{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 0;}
+    .tleft{min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+    .tlang{font-size:12px;color:var(--muted);white-space:nowrap}
+    .tmain{font-size:16px;font-weight:700;line-height:1.2;cursor:pointer}
+    .tgloss{font-size:12px;color:var(--muted);white-space:nowrap}
+    .sbtn{border:1px solid rgba(255,255,255,.18);background:transparent;color:#fff;border-radius:10px;padding:6px 10px;cursor:pointer}
+    .sbtn:disabled{opacity:.4;cursor:not-allowed}
+    .score{margin-top:4px}
+</style>
 </head>
 <body>
   <div id="wrap">
@@ -52,14 +60,7 @@
           </label>
         </div>
         <div class="row">
-          <span class="muted">Primary</span>
-          <select id="primary">
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-            <option value="zh">中文</option>
-            <option value="ko">한국어</option>
-          </select>
-          <span class="muted">Top-K</span>
+<span class="muted">Top-K</span>
           <select id="topk">
             <option>10</option>
             <option selected>30</option>
@@ -79,13 +80,10 @@
     <div class="panel">
       <div class="bar" style="margin-bottom:6px">
         <div class="row">
-          <b>Tags</b>
-          <span class="muted">（タップで発音）</span>
+          <b>Tags</b> <span class="pill">🇯🇵+🇨🇳+🇰🇷 + EN</span>
+          <span class="muted">（タップで発音 / Tap to speak）</span>
         </div>
-        <div class="row">
-          <button id="btnSpeakTop" disabled>🔊 上位を連続発音</button>
-        </div>
-      </div>
+</div>
       <div id="tags" class="muted">まだ解析していません。</div>
       <div class="muted" style="margin-top:8px">
         ※ 発音は端末のTTS音声に依存します（iPhone/Androidで差が出ます）。
