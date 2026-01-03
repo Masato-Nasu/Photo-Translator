@@ -1,14 +1,3 @@
-
-function drawImageToShot(imgOrVideo, srcW, srcH){
-  const longEdge = Math.max(srcW, srcH);
-  const scale = Math.min(1, PREVIEW_MAX_DIM / longEdge);
-  const tw = Math.max(1, Math.round(srcW * scale));
-  const th = Math.max(1, Math.round(srcH * scale));
-  shot.width = tw; shot.height = th;
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.drawImage(imgOrVideo, 0, 0, tw, th);
-}
-
 // Photo Translator PWA (Capture/Upload -> Top-K tags -> JA/ZH/KO+EN) + TTS
 // Connects to your server: POST TAGGER_ENDPOINT/tagger?topk=30 (multipart image)
 // Optional: POST TRANSLATE_ENDPOINT with { target, texts } -> { textsTranslated }
@@ -17,9 +6,17 @@ const cam = document.getElementById("cam");
 const shot = document.getElementById("shot");
 const ctx = shot.getContext("2d");
 
-const btnStartCam = document.getElementById("btnStartCam");
-const btnPick    = document.getElementById("btnPick");
-const fileInput  = document.getElementById("fileInput");
+function drawImageToShot(src, srcW, srcH){
+  const longEdge = Math.max(srcW, srcH);
+  const scale = Math.min(1, PREVIEW_MAX_DIM / longEdge);
+  const tw = Math.max(1, Math.round(srcW * scale));
+  const th = Math.max(1, Math.round(srcH * scale));
+  shot.width = tw; shot.height = th;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(src, 0, 0, tw, th);
+}
+
+
 const btnCapture = document.getElementById("btnCapture");
 const btnRetake  = document.getElementById("btnRetake");
 const btnAnalyze = document.getElementById("btnAnalyze");
@@ -35,10 +32,9 @@ const TRANSLATE_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/translate
 
 
 // Image upload settings
-const MAX_DIM = 1024;
-const PREVIEW_MAX_DIM = 1600; // keep UI responsive even for huge photos      // resize long edge to reduce bandwidth
+const MAX_DIM = 1024;      // resize long edge to reduce bandwidth
 const JPEG_QUALITY = 0.86;
-
+const PREVIEW_MAX_DIM = 1600; // limit on-screen canvas size so UI stays usable
 let stream = null;
 let frozen = false;
 let lastItems = []; // [{en, ja, zh, ko, score}]
@@ -195,50 +191,14 @@ function renderTags(items){
 // ---------- camera ----------
 async function initCam(){
   try{
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      throw Object.assign(new Error("getUserMedia_not_supported"), { name: "NotSupportedError" });
-    }
-    // Stop existing stream if any
-    if (stream){
-      try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
-      stream = null;
-    }
-    const tries = [
-      { video: { facingMode: { ideal: "environment" } }, audio: false },
-      { video: { facingMode: "environment" }, audio: false },
-      { video: { facingMode: { ideal: "user" } }, audio: false },
-      { video: true, audio: false },
-    ];
-    let lastErr = null;
-    for (const c of tries){
-      try{ stream = await navigator.mediaDevices.getUserMedia(c); lastErr = null; break; }
-      catch(e){ lastErr = e; }
-    }
-    if (lastErr) throw lastErr;
-
+    stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
     cam.srcObject = stream;
     await new Promise(res => cam.onloadedmetadata = res);
-    try{ await cam.play(); }catch(e){}
-
-    // Show camera view
-    cam.style.display = "block";
-    shot.style.display = "none";
-    frozen = false;
-    btnRetake.style.display = "none";
-    btnCapture.style.display = "inline-flex";
-    btnAnalyze.disabled = true;
-
-    setStatus("準備完了：📸で撮影 or 🖼で画像選択 → 🔎でタグ解析 / Ready: 📸 Capture or 🖼 Choose → 🔎 Analyze");
+    await cam.play();
+    setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
   }catch(e){
     console.error(e);
-    const name = e?.name || "";
-    if (name === "NotAllowedError" || name === "SecurityError"){
-      setStatus("カメラ許可が必要です。ブラウザのサイト設定でカメラを「許可」にしてください。 / Camera permission required. Allow camera in site settings.");
-    }else if (name === "NotReadableError"){
-      setStatus("カメラが他アプリで使用中の可能性があります（Zoom/Teams/カメラ等）。 / Camera may be in use by another app.");
-    }else{
-      setStatus("カメラを起動できませんでした。HTTPS / 権限 / ブラウザ設定を確認してください。 / Couldn’t start the camera.");
-    }
+    setStatus("カメラを起動できませんでした。HTTPS / 権限 / ブラウザ設定を確認してください。");
   }
 }
 
@@ -250,7 +210,6 @@ function freezeFrame(){
     return;
   }
   drawImageToShot(cam, w, h);
-
   cam.style.display = "none";
   shot.style.display = "block";
   frozen = true;
@@ -276,50 +235,8 @@ function unfreeze(){
   setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
 }
 
-btnCapture.onclick = async () => {
-  if (!stream){
-    setStatus("カメラ許可が必要です。先に📷を押してください。 / Please tap 📷 Start Camera first.");
-    await initCam();
-    if (!stream) return;
-  }
-  freezeFrame();
-};
+btnCapture.onclick = freezeFrame;
 btnRetake.onclick = unfreeze;
-btnStartCam.onclick = async () => { await initCam(); };
-btnPick.onclick = () => fileInput.click();
-fileInput.onchange = async () => {
-  const f = fileInput.files && fileInput.files[0];
-  if (!f) return;
-  try{
-    setStatus("画像を読み込み中… / Loading image…");
-    const url = URL.createObjectURL(f);
-    const img = new Image();
-    img.onload = () => {
-      try{
-        drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
-        cam.style.display = "none";
-        shot.style.display = "block";
-        frozen = true;
-        btnCapture.style.display = "none";
-        btnRetake.style.display = "inline-flex";
-        btnAnalyze.disabled = false;
-        setStatus("画像OK：🔎でタグ解析 / Image ready: 🔎 Analyze");
-      }finally{
-        URL.revokeObjectURL(url);
-        fileInput.value = "";
-      }
-    };
-    img.onerror = () => {
-      setStatus("画像を読み込めませんでした。別の画像で試してください。 / Could not load image.");
-      URL.revokeObjectURL(url);
-      fileInput.value = "";
-    };
-    img.src = url;
-  }catch(e){
-    console.error(e);
-    setStatus("画像読み込みでエラーが発生しました。 / Error while loading image.");
-  }
-};
 
 // ---------- file load ----------
 file.addEventListener("change", async () => {
@@ -327,10 +244,7 @@ file.addEventListener("change", async () => {
   if (!f) return;
   const img = new Image();
   img.onload = () => {
-    shot.width = img.naturalWidth;
-    shot.height = img.naturalHeight;
-    ctx.drawImage(img, 0, 0);
-
+    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
     cam.style.display = "none";
     shot.style.display = "block";
     frozen = true;
@@ -461,43 +375,11 @@ btnAnalyze.onclick = async () => {
 
 // Speak top N sequentially (simple queue)
 
-function startCamOnFirstGesture(){
-  const once = async () => {
-    if (!stream){ await initCam(); }
-  };
-  window.addEventListener('pointerdown', once, { once:true });
-  window.addEventListener('touchstart', once, { once:true });
-}
-
 // Kickoff
-startCamOnFirstGesture();
 try{ topkSel.value = "10"; }catch(e){}
-setStatus("カメラ未開始です。📷を押して許可してください。 / Camera not started. Tap 📷 Start Camera and allow.");
+initCam();
 
 // PWA service worker
 if ("serviceWorker" in navigator){
-  navigator.serviceWorker.register("./sw.js")
-  .then((reg) => {
-    try{ reg.update(); }catch(e){}
-    // If a new SW is waiting, activate it immediately
-    if (reg.waiting){
-      try{ reg.waiting.postMessage({type:"SKIP_WAITING"}); }catch(e){}
-    }
-    reg.addEventListener("updatefound", () => {
-      const nw = reg.installing;
-      if (!nw) return;
-      nw.addEventListener("statechange", () => {
-        if (nw.state === "installed" && reg.waiting){
-          try{ reg.waiting.postMessage({type:"SKIP_WAITING"}); }catch(e){}
-        }
-      });
-    });
-  })
-  .catch(()=>{});
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    // Reload once when the new SW takes control
-    if (window.__swReloaded) return;
-    window.__swReloaded = true;
-    window.location.reload();
-  });
+  navigator.serviceWorker.register("./sw.js").catch(()=>{});
 }

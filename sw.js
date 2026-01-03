@@ -15,12 +15,25 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request)));
-});
-
-
-self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") {
-    self.skipWaiting();
+  const req = e.request;
+  const url = new URL(req.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isNav = req.mode === "navigate" || req.destination === "document";
+  if (isSameOrigin && isNav){
+    // Network-first for HTML to make updates show up reliably
+    e.respondWith((async () => {
+      try{
+        const fresh = await fetch(req);
+        const c = await caches.open(CACHE);
+        c.put(req, fresh.clone());
+        return fresh;
+      }catch(e2){
+        const hit = await caches.match(req);
+        return hit || caches.match("./index.html");
+      }
+    })());
+    return;
   }
+  // Cache-first for static assets
+  e.respondWith(caches.match(req).then(hit => hit || fetch(req)));
 });
