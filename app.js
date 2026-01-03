@@ -78,11 +78,38 @@ function langToTranslateTarget(lang){
   return lang; // en / ja / ko
 }
 
+// ---------- TTS voice selection (fix: some browsers ignore u.lang and stick to default voice) ----------
+let TTS_VOICES = [];
+function refreshVoices(){
+  try{ TTS_VOICES = speechSynthesis.getVoices() || []; }catch(e){ TTS_VOICES = []; }
+}
+refreshVoices();
+try{ speechSynthesis.addEventListener('voiceschanged', refreshVoices); }catch(e){}
+
+function pickVoice(lang){
+  const want = (langToTTS(lang) || '').toLowerCase(); // e.g. en-us
+  const short = want.split('-')[0];
+  const voices = TTS_VOICES || [];
+  if (!voices.length) return null;
+  // 1) exact locale match
+  let v = voices.find(x => (x.lang || '').toLowerCase() === want);
+  if (v) return v;
+  // 2) language-only match (prefer localService when available)
+  const candidates = voices.filter(x => (x.lang || '').toLowerCase().startsWith(short));
+  if (!candidates.length) return null;
+  v = candidates.find(x => x.localService);
+  return v || candidates[0];
+}
+
 function speak(text, lang){
   if (!text) return;
+  // Ensure voices are loaded (some browsers populate lazily)
+  refreshVoices();
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = langToTTS(lang);
+  const v = pickVoice(lang);
+  if (v) u.voice = v;
+  u.lang = (v?.lang) ? v.lang : langToTTS(lang);
   speechSynthesis.speak(u);
 }
 
@@ -187,6 +214,11 @@ function unfreeze(){
 
 btnCapture.onclick = freezeFrame;
 btnRetake.onclick = unfreeze;
+
+// Keep TTS language in sync with UI selection
+primarySel.addEventListener("change", () => {
+  lastPrimary = primarySel.value || "en";
+});
 
 // ---------- file load ----------
 file.addEventListener("change", async () => {
@@ -338,7 +370,10 @@ btnSpeakTop.onclick = async () => {
     const text = lastTags[i].label;
     i++;
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = langToTTS(lastPrimary);
+    refreshVoices();
+    const v = pickVoice(lastPrimary);
+    if (v) u.voice = v;
+    u.lang = (v?.lang) ? v.lang : langToTTS(lastPrimary);
     u.onend = speakNext;
     u.onerror = speakNext;
     speechSynthesis.speak(u);
