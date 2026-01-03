@@ -1,3 +1,14 @@
+
+function drawImageToShot(imgOrVideo, srcW, srcH){
+  const longEdge = Math.max(srcW, srcH);
+  const scale = Math.min(1, PREVIEW_MAX_DIM / longEdge);
+  const tw = Math.max(1, Math.round(srcW * scale));
+  const th = Math.max(1, Math.round(srcH * scale));
+  shot.width = tw; shot.height = th;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(imgOrVideo, 0, 0, tw, th);
+}
+
 // Photo Translator PWA (Capture/Upload -> Top-K tags -> JA/ZH/KO+EN) + TTS
 // Connects to your server: POST TAGGER_ENDPOINT/tagger?topk=30 (multipart image)
 // Optional: POST TRANSLATE_ENDPOINT with { target, texts } -> { textsTranslated }
@@ -6,6 +17,9 @@ const cam = document.getElementById("cam");
 const shot = document.getElementById("shot");
 const ctx = shot.getContext("2d");
 
+const btnStartCam = document.getElementById("btnStartCam");
+const btnPick    = document.getElementById("btnPick");
+const fileInput  = document.getElementById("fileInput");
 const btnCapture = document.getElementById("btnCapture");
 const btnRetake  = document.getElementById("btnRetake");
 const btnAnalyze = document.getElementById("btnAnalyze");
@@ -21,7 +35,8 @@ const TRANSLATE_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/translate
 
 
 // Image upload settings
-const MAX_DIM = 1024;      // resize long edge to reduce bandwidth
+const MAX_DIM = 1024;
+const PREVIEW_MAX_DIM = 1600; // keep UI responsive even for huge photos      // resize long edge to reduce bandwidth
 const JPEG_QUALITY = 0.86;
 
 let stream = null;
@@ -180,14 +195,50 @@ function renderTags(items){
 // ---------- camera ----------
 async function initCam(){
   try{
-    stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      throw Object.assign(new Error("getUserMedia_not_supported"), { name: "NotSupportedError" });
+    }
+    // Stop existing stream if any
+    if (stream){
+      try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
+      stream = null;
+    }
+    const tries = [
+      { video: { facingMode: { ideal: "environment" } }, audio: false },
+      { video: { facingMode: "environment" }, audio: false },
+      { video: { facingMode: { ideal: "user" } }, audio: false },
+      { video: true, audio: false },
+    ];
+    let lastErr = null;
+    for (const c of tries){
+      try{ stream = await navigator.mediaDevices.getUserMedia(c); lastErr = null; break; }
+      catch(e){ lastErr = e; }
+    }
+    if (lastErr) throw lastErr;
+
     cam.srcObject = stream;
     await new Promise(res => cam.onloadedmetadata = res);
-    await cam.play();
-    setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
+    try{ await cam.play(); }catch(e){}
+
+    // Show camera view
+    cam.style.display = "block";
+    shot.style.display = "none";
+    frozen = false;
+    btnRetake.style.display = "none";
+    btnCapture.style.display = "inline-flex";
+    btnAnalyze.disabled = true;
+
+    setStatus("準備完了：📸で撮影 or 🖼で画像選択 → 🔎でタグ解析 / Ready: 📸 Capture or 🖼 Choose → 🔎 Analyze");
   }catch(e){
     console.error(e);
-    setStatus("カメラを起動できませんでした。HTTPS / 権限 / ブラウザ設定を確認してください。");
+    const name = e?.name || "";
+    if (name === "NotAllowedError" || name === "SecurityError"){
+      setStatus("カメラ許可が必要です。ブラウザのサイト設定でカメラを「許可」にしてください。 / Camera permission required. Allow camera in site settings.");
+    }else if (name === "NotReadableError"){
+      setStatus("カメラが他アプリで使用中の可能性があります（Zoom/Teams/カメラ等）。 / Camera may be in use by another app.");
+    }else{
+      setStatus("カメラを起動できませんでした。HTTPS / 権限 / ブラウザ設定を確認してください。 / Couldn’t start the camera.");
+    }
   }
 }
 
@@ -198,8 +249,7 @@ function freezeFrame(){
     setStatus("カメラ映像が取得できませんでした。");
     return;
   }
-  shot.width = w; shot.height = h;
-  ctx.drawImage(cam, 0, 0, w, h);
+  drawImageToShot(cam, w, h);
 
   cam.style.display = "none";
   shot.style.display = "block";
@@ -226,8 +276,50 @@ function unfreeze(){
   setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
 }
 
-btnCapture.onclick = freezeFrame;
+btnCapture.onclick = async () => {
+  if (!stream){
+    setStatus("カメラ許可が必要です。先に📷を押してください。 / Please tap 📷 Start Camera first.");
+    await initCam();
+    if (!stream) return;
+  }
+  freezeFrame();
+};
 btnRetake.onclick = unfreeze;
+btnStartCam.onclick = async () => { await initCam(); };
+btnPick.onclick = () => fileInput.click();
+fileInput.onchange = async () => {
+  const f = fileInput.files && fileInput.files[0];
+  if (!f) return;
+  try{
+    setStatus("画像を読み込み中… / Loading image…");
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => {
+      try{
+        drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
+        cam.style.display = "none";
+        shot.style.display = "block";
+        frozen = true;
+        btnCapture.style.display = "none";
+        btnRetake.style.display = "inline-flex";
+        btnAnalyze.disabled = false;
+        setStatus("画像OK：🔎でタグ解析 / Image ready: 🔎 Analyze");
+      }finally{
+        URL.revokeObjectURL(url);
+        fileInput.value = "";
+      }
+    };
+    img.onerror = () => {
+      setStatus("画像を読み込めませんでした。別の画像で試してください。 / Could not load image.");
+      URL.revokeObjectURL(url);
+      fileInput.value = "";
+    };
+    img.src = url;
+  }catch(e){
+    console.error(e);
+    setStatus("画像読み込みでエラーが発生しました。 / Error while loading image.");
+  }
+};
 
 // ---------- file load ----------
 file.addEventListener("change", async () => {
@@ -312,18 +404,18 @@ async function translateTexts(texts, target){
 btnAnalyze.onclick = async () => {
   try{
     if (!frozen){
-      setStatus("まず📸で撮影するか、🖼で画像を読み込んでください。");
+      setStatus("まず📸で撮影するか、🖼で画像を読み込んでください。 / Please capture (📸) or choose an image (🖼) first.");
       return;
     }
     const topk = Number(topkSel.value || 30);
 
-    setStatus("タグ解析中… / Analyzing…");
-    tagsEl.textContent = "解析中…";
+    setStatus("タグ解析中… / Working… / Analyzing…");
+    tagsEl.textContent = "解析中… / Working…";
 
     const tagsEn = await postTags(topk);
     if (!tagsEn.length){
       renderTags([]);
-      setStatus("タグが空でした。");
+      setStatus("タグが空でした。 / No tags returned.");
       return;
     }
 
@@ -331,7 +423,7 @@ btnAnalyze.onclick = async () => {
 
     let trJa = null, trZh = null, trKo = null;
     if (!TRANSLATE_ENDPOINT){
-      setStatus("翻訳API未設定のため英語のみ表示しています（TRANSLATE_ENDPOINTを設定してください）");
+      setStatus("翻訳API未設定のため英語のみ表示しています（TRANSLATE_ENDPOINTを設定してください） / Translation API not set, showing English only (set TRANSLATE_ENDPOINT).");
     } else {
       setStatus("翻訳中… / Translating…");
       try{ trJa = await translateTexts(texts, "ja"); }catch(e){ trJa = null; }
@@ -352,25 +444,34 @@ btnAnalyze.onclick = async () => {
 
     // If any translation is missing, mention it lightly (still usable).
     if (TRANSLATE_ENDPOINT && (!trJa || !trZh || !trKo)){
-      setStatus("完了：一部翻訳に失敗した単語は英語で補っています / Done (some words fallback to English).");
+      setStatus("完了：一部翻訳に失敗した単語は英語で補っています / Done (some words fall back to English). / Done");
     } else {
-      setStatus("完了：各行をタップするとその言語で発音します / Done: tap to speak.");
+      setStatus("完了：各行をタップするとその言語で発音します / Done: tap to speak. / Done");
     }
   }catch(e){
     console.error(e);
     if (String(e?.message || "").includes("TAGGER_ENDPOINT not set")){
-      setStatus("TAGGER_ENDPOINT が未設定です。app.js を開いてエンドポイントを設定してください。");
+      setStatus("TAGGER_ENDPOINT が未設定です。app.js を開いてエンドポイントを設定してください。 / TAGGER_ENDPOINT is not set. Please set it in app.js.");
     } else {
       setStatus("エラー：" + (e?.message || e));
     }
-    tagsEl.textContent = "エラーが発生しました。";
+    tagsEl.textContent = "エラーが発生しました。 / An error occurred.";
   }
 };
 
 // Speak top N sequentially (simple queue)
 
+function startCamOnFirstGesture(){
+  const once = async () => {
+    if (!stream){ await initCam(); }
+  };
+  window.addEventListener('pointerdown', once, { once:true });
+  window.addEventListener('touchstart', once, { once:true });
+}
+
 // Kickoff
-initCam();
+startCamOnFirstGesture();
+setStatus("カメラ未開始です。📷を押して許可してください。 / Camera not started. Tap 📷 Start Camera and allow.");
 
 // PWA service worker
 if ("serviceWorker" in navigator){

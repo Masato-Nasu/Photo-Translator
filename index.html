@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Photo Tagger (Top-K)</title>
+  <title>Photo Tagger (Top-K（上位）)</title>
   <link rel="manifest" href="./manifest.json" />
   <meta name="theme-color" content="#111111" />
   <style>
@@ -26,9 +26,10 @@
     button{cursor:pointer}
     button:active{transform:translateY(1px)}
     button:disabled{opacity:.5;cursor:not-allowed}
-    #stage{position:relative;display:grid;place-items:center;border-radius:14px;overflow:hidden;background:#000;}
-    video,canvas{width:100%;height:100%;object-fit:cover;background:#000}
-    canvas{display:none}
+    #stage{position:relative;display:grid;place-items:center;border-radius:14px;overflow:hidden;background:#000;width:100%;max-height:55vh;min-height:240px;aspect-ratio:4/3;}
+video,canvas{width:100%;height:100%;object-fit:cover;background:#000}
+canvas{display:none}
+@supports not (aspect-ratio: 1 / 1){ #stage{height:45vh;} }
     #tags{max-height:30vh;overflow:auto}
     .tag{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;
       border-bottom:1px solid rgba(255,255,255,.08);}
@@ -54,9 +55,12 @@
     <div class="panel">
       <div class="bar">
         <div class="row">
-          <button id="btnCapture">📸 撮影</button>
-          <button id="btnRetake" style="display:none">↩︎ 撮り直し</button>
-          <button id="btnAnalyze" disabled>🔎 タグ解析</button>
+          <button id="btnStartCam">📷 カメラ開始 / Start Camera</button>
+          <button id="btnCapture">📸 撮影 / Capture</button>
+          <button id="btnPick">🖼 画像選択 / Choose Image</button>
+          <input id="fileInput" type="file" accept="image/*" style="display:none" />
+          <button id="btnRetake" style="display:none">↩︎ 撮り直し / Retake</button>
+          <button id="btnAnalyze" disabled>🔎 タグ解析 / Analyze</button>
           <label class="pill" style="cursor:pointer">
             🖼 画像
             <input id="file" type="file" accept="image/*" style="display:none" />
@@ -65,9 +69,9 @@
         <div class="row">
           <span class="muted">Languages</span>
           <span class="pill">🇯🇵 JA</span><span class="pill">🇨🇳 ZH</span><span class="pill">🇰🇷 KO</span><span class="pill">🇺🇸 EN</span>
-          <span class="muted">Top-K</span>
+          <span class="muted">Top-K（上位）</span>
           <select id="topk">
-            <option>10</option>
+            <option selected>10</option>
             <option selected>30</option>
             <option>50</option>
             <option>80</option>
