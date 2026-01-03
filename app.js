@@ -86,36 +86,90 @@ function renderTags(tags){
 
 // ---------- camera ----------
 async function initCam(){
+  // Some devices/browsers fail if facingMode is requested strictly.
+  // We try a few constraints (environment -> user -> any) and fall back gracefully.
+  const tries = [
+    { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: { ideal: "user" },        width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: true, audio: false },
+  ];
+
   try{
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    if (!navigator.mediaDevices?.getUserMedia){
       throw new Error("getUserMedia_not_supported");
     }
-    // Some mobile browsers fail with facingMode=environment. Try a small fallback ladder.
-    const tries = [
-      { video: { facingMode: { ideal: "environment" } }, audio: false },
-      { video: { facingMode: "environment" }, audio: false },
-      { video: true, audio: false },
-    ];
+
+    // stop previous stream if any
+    try{
+      if (stream){
+        stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+        stream = null;
+      }
+    }catch(e){}
+
+    setStatus("カメラ起動中…（許可が必要です） / Starting camera… (permission may be required)");
+
     let lastErr = null;
     for (const c of tries){
       try{
         stream = await navigator.mediaDevices.getUserMedia(c);
-        lastErr = null;
         break;
       }catch(e){
         lastErr = e;
       }
     }
-    if (lastErr) throw lastErr;
+    if (!stream) throw lastErr || new Error("getUserMedia_failed");
 
+    try{ cam.setAttribute("playsinline",""); }catch(e){}
     cam.srcObject = stream;
-    await new Promise(res => cam.onloadedmetadata = res);
-    // cam.play() can fail without user gesture on some platforms; we retry on first tap.
-    try{ await cam.play(); }catch(_e){}
-    setStatus("準備完了：📸で撮影 → 🔎でタグ解析 / Ready: 📸 Capture → 🔎 Analyze");
+
+    // Wait until video metadata is ready (best-effort)
+    await new Promise(res => {
+      const done = () => { try{ cam.onloadedmetadata = null; }catch(e){}; res(); };
+      try{ cam.onloadedmetadata = done; }catch(e){ res(); }
+      // safety timeout
+      setTimeout(done, 1500);
+    });
+
+    // Some browsers require play() after a gesture; we still try.
+    await cam.play().catch(()=>{});
+
+    setStatus("準備完了：📸で撮影 → 🔎でタグ解析 / Ready: 📸 Capture → 🔎 Analyze tags");
   }catch(e){
     console.error(e);
-    setStatus("カメラを起動できませんでした。HTTPS / 権限 / ブラウザ設定を確認してください。 / Couldn’t start the camera. Check HTTPS / permissions / browser settings.");
+    const name = e?.name || "";
+    const msg  = e?.message || String(e);
+    let hintJP = "HTTPS / 権限 / ブラウザ設定 / 他アプリのカメラ使用状況を確認してください。";
+    let hintEN = "Check HTTPS / permissions / browser settings / whether another app is using the camera.";
+    if (name === "NotAllowedError" || name === "SecurityError"){
+      hintJP = "権限が拒否されています。ブラウザのサイト設定でカメラを許可して、再読み込みしてください。";
+      hintEN = "Permission denied. Allow camera permission in site settings, then reload.";
+    }else if (name === "NotFoundError" || name === "DevicesNotFoundError"){
+      hintJP = "カメラが見つかりません。接続・OS設定を確認してください。";
+      hintEN = "No camera found. Check OS/device settings.";
+    }else if (name === "NotReadableError" || name === "TrackStartError"){
+      hintJP = "他アプリがカメラを使用中の可能性があります。Zoom/Teams等を閉じてください。";
+      hintEN = "Another app may be using the camera. Close Zoom/Teams etc.";
+    }else if (name === "OverconstrainedError"){
+      hintJP = "カメラ条件が合わず起動できませんでした。別条件で再試行します（再読み込み）。";
+      hintEN = "Camera constraints failed. Reload to retry with different constraints.";
+    }
+
+    setStatus(
+      `カメラを起動できませんでした。${hintJP}\n(${name} ${msg})\n` +
+      `Could not start the camera. ${hintEN}\n(${name} ${msg})`
+    );
+
+    // If the browser requires a user gesture, retry once on next tap/click.
+    if (name === "NotAllowedError" || name === "SecurityError"){
+      const once = () => {
+        window.removeEventListener("click", once, true);
+        window.removeEventListener("touchend", once, true);
+        initCam();
+      };
+      window.addEventListener("click", once, true);
+      window.addEventListener("touchend", once, true);
+    }
   }
 }
 
@@ -312,23 +366,7 @@ btnSpeakTop.onclick = async () => {
   speakNext();
 };
 
-
-function startCamOnFirstGesture(){
-  const once = async () => {
-    // If camera isn't running yet, try starting it from a user gesture.
-    if (!stream){
-      await initCam();
-    }else{
-      // Some browsers need play() from a gesture even if stream exists.
-      try{ await cam.play(); }catch(e){}
-    }
-  };
-  window.addEventListener('pointerdown', once, { once: true });
-  window.addEventListener('touchstart', once, { once: true });
-}
-
 // Kickoff
-startCamOnFirstGesture();
 initCam();
 
 // PWA service worker
