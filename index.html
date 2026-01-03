@@ -50,6 +50,20 @@
     
   
     html{ -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+
+
+    /* --- overflow safety (prevents horizontal spill on some photos/tags) --- */
+    body{overflow-x:hidden;}
+    #wrap{overflow-x:hidden;}
+    header,main,footer,.panel,.bar,.row{max-width:100%;}
+    button,select,input{max-width:100%;}
+    .panel{overflow:hidden;}
+    .tag{display:block;width:100%;overflow:hidden;}
+    .tline{flex-wrap:wrap;}
+    .tleft{min-width:0;flex:1 1 auto;}
+    .tmain{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .tgloss{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60vw;}
+    
 </style>
 </head>
 <body>

@@ -23,6 +23,17 @@ const btnAnalyze = document.getElementById("btnAnalyze");
 
 const file = document.getElementById("file");
 const topkSel = document.getElementById("topk");
+
+function ensureTopK10(){
+  try{
+    if (topkSel && topkSel.value !== "10"){
+      topkSel.value = "10";
+      // some browsers need change event to refresh UI state
+      topkSel.dispatchEvent(new Event("change"));
+    }
+  }catch(e){}
+}
+
 const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
 
@@ -221,6 +232,7 @@ function freezeFrame(){
 }
 
 function unfreeze(){
+  ensureTopK10();
   frozen = false;
   cam.style.display = "block";
   shot.style.display = "none";
@@ -375,6 +387,7 @@ btnAnalyze.onclick = async () => {
 
 // Speak top N sequentially (simple queue)
 
+ensureTopK10();
 // Kickoff
 try{ topkSel.value = "10"; }catch(e){}
 initCam();
