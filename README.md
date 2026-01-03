@@ -93,7 +93,8 @@ iOS側に英語音声が入っていない／日本語音声が優先されて�
 ```md
 ## Screenshot
 
-<img src="docs/screenshot1.jpg" width="360" />
+![screenshot](docs/screenshot1.jpg)
+
 ```
 
 ---
