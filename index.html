@@ -30,31 +30,20 @@
     video,canvas{width:100%;height:100%;object-fit:cover;background:#000}
     canvas{display:none}
     #tags{max-height:30vh;overflow:auto}
-    .tag{padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);} 
+    .tag{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;
+      border-bottom:1px solid rgba(255,255,255,.08);}
     .label{font-size:16px;font-weight:700;line-height:1.2;cursor:pointer}
     .score{color:var(--muted);font-size:12px;white-space:nowrap}
     .muted{color:var(--muted);font-size:12px}
     .pill{display:inline-block;padding:2px 8px;border:1px solid rgba(255,255,255,.18);border-radius:999px;color:var(--muted)}
-  
-    .tline{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 0;}
-    .tleft{min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-    .tlang{font-size:12px;color:var(--muted);white-space:nowrap}
-    .tmain{font-size:16px;font-weight:700;line-height:1.2;cursor:pointer}
-    .tgloss{font-size:12px;color:var(--muted);white-space:nowrap}
-    .tgloss{cursor:pointer}
-    .tright{display:flex;gap:6px;align-items:center;}
-    .sbtn-en{font-size:12px;padding:6px 8px;opacity:.9}
-
-    .sbtn{border:1px solid rgba(255,255,255,.18);background:transparent;color:#fff;border-radius:10px;padding:6px 10px;cursor:pointer}
-    .sbtn:disabled{opacity:.4;cursor:not-allowed}
-    .score{margin-top:4px}
-</style>
+  </style>
 </head>
 <body>
   <div id="wrap">
     <div class="panel">
       <div class="bar">
         <div class="row">
+          <button id="btnStartCam">📷 カメラ開始 / Start</button>
           <button id="btnCapture">📸 撮影</button>
           <button id="btnRetake" style="display:none">↩︎ 撮り直し</button>
           <button id="btnAnalyze" disabled>🔎 タグ解析</button>
@@ -64,7 +53,14 @@
           </label>
         </div>
         <div class="row">
-<span class="muted">Top-K</span>
+          <span class="muted">Primary</span>
+          <select id="primary">
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="zh">中文</option>
+            <option value="ko">한국어</option>
+          </select>
+          <span class="muted">Top-K</span>
           <select id="topk">
             <option>10</option>
             <option selected>30</option>
@@ -73,7 +69,7 @@
           </select>
         </div>
       </div>
-      <div class="muted" id="status">カメラ起動中…（許可が必要です）</div>
+      <div class="muted" id="status">カメラ未開始です。📷を押して許可してください。 / Camera not started. Tap 📷 and allow.</div>
     </div>
 
     <div id="stage" class="panel" style="padding:0">
@@ -84,10 +80,13 @@
     <div class="panel">
       <div class="bar" style="margin-bottom:6px">
         <div class="row">
-          <b>Tags</b> <span class="pill">🇯🇵+🇨🇳+🇰🇷 + EN</span>
-          <span class="muted">（タップで発音 / Tap to speak）</span>
+          <b>Tags</b>
+          <span class="muted">（タップで発音）</span>
         </div>
-</div>
+        <div class="row">
+          <button id="btnSpeakTop" disabled>🔊 上位を連続発音</button>
+        </div>
+      </div>
       <div id="tags" class="muted">まだ解析していません。</div>
       <div class="muted" style="margin-top:8px">
         ※ 発音は端末のTTS音声に依存します（iPhone/Androidで差が出ます）。

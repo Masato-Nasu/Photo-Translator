@@ -1,4 +1,4 @@
-const CACHE = "photo-tagger-pwa-v1";
+const CACHE = "photo-tagger-pwa-2";
 const ASSETS = ["./","./index.html","./app.js","./manifest.json","./icons/icon-192.png","./icons/icon-512.png","./README.md"];
 
 self.addEventListener("install", (e) => {
@@ -7,7 +7,11 @@ self.addEventListener("install", (e) => {
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(self.clients.claim());
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k !== "photo-tagger-pwa-2").map(k => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener("fetch", (e) => {
