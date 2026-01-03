@@ -100,19 +100,3 @@ iOS側に英語音声が入っていない／日本語音声が優先されて�
 ```
 
 ---
-
-## 開発者向けメモ（任意） / For developers (optional)
-
-Space には簡単なAPIがあります（例）:
-
-- `GET /health` : ヘルスチェック
-- `POST /tagger` : 画像→タグ推定
-- `POST /translate` : テキスト翻訳（構成次第）
-
-フロントエンドは `index.html` + `app.js` の静的構成で、PWA用に `manifest.json` / `sw.js` を含みます。
-
----
-
-## ライセンス / License
-
-必要に応じて追記してください（例: MIT）。
