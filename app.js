@@ -471,9 +471,33 @@ function startCamOnFirstGesture(){
 
 // Kickoff
 startCamOnFirstGesture();
+try{ topkSel.value = "10"; }catch(e){}
 setStatus("カメラ未開始です。📷を押して許可してください。 / Camera not started. Tap 📷 Start Camera and allow.");
 
 // PWA service worker
 if ("serviceWorker" in navigator){
-  navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  navigator.serviceWorker.register("./sw.js")
+  .then((reg) => {
+    try{ reg.update(); }catch(e){}
+    // If a new SW is waiting, activate it immediately
+    if (reg.waiting){
+      try{ reg.waiting.postMessage({type:"SKIP_WAITING"}); }catch(e){}
+    }
+    reg.addEventListener("updatefound", () => {
+      const nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener("statechange", () => {
+        if (nw.state === "installed" && reg.waiting){
+          try{ reg.waiting.postMessage({type:"SKIP_WAITING"}); }catch(e){}
+        }
+      });
+    });
+  })
+  .catch(()=>{});
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    // Reload once when the new SW takes control
+    if (window.__swReloaded) return;
+    window.__swReloaded = true;
+    window.location.reload();
+  });
 }
