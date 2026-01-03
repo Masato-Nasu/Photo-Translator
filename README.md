@@ -91,11 +91,8 @@ iOS側に英語音声が入っていない／日本語音声が優先されて�
 ## スクリーンショット / Screenshot
 
 ```md
-## スクリーンショット / Screenshot
-
-<img src="docs/screenshot1.jpg" width="360" />## Screenshot
-
 ![screenshot](docs/screenshot1.jpg)
+
 
 ```
 
