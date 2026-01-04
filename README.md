@@ -90,7 +90,7 @@ iOS側に英語音声が入っていない／日本語音声が優先されて�
 
 ## スクリーンショット / Screenshot
 
-```md
+md
 ![screenshot](https://raw.githubusercontent.com/Masato-Nasu/Photo-Translator/main/docs/screenshot1.png)
 
 ---
