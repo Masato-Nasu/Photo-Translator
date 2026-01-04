@@ -472,7 +472,15 @@ try{ topkSel.value = "10"; }catch(e){}
 setStatus("📸を押すとカメラが起動します（許可が必要です）");
 // PWA service worker
 if ("serviceWorker" in navigator){
-  navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  navigator.serviceWorker.register("./sw.js", { scope: "./" })
+    .then((reg) => {
+      // Try to update immediately (useful after deploying new files)
+      try{ reg.update(); }catch(e){}
+      console.log("[SW] registered:", reg.scope);
+    })
+    .catch((err) => {
+      console.warn("[SW] register failed:", err);
+    });
 }
 
 
