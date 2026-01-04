@@ -3,7 +3,7 @@
 撮った写真（または選んだ画像）を**タグ解析（画像→単語）**し、結果を **日本語・英語・中国語・韓国語**で並べて表示・発音できる、軽量PWAです。  
 （発音は端末の Text-to-Speech / Speech Synthesis に依存します）
 
-**Demo**: https://masato-nasu.github.io/Photo-Translator/
+**Live Demo（Hugging Face Spaces）**: https://mazzgogo-photo-translator.hf.space/
 
 ---
 
