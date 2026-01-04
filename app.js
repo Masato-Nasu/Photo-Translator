@@ -25,15 +25,6 @@ const btnPick = document.getElementById("btnPick");
 const file = document.getElementById("file");
 const topkSel = document.getElementById("topk");
 
-function ensureTopK10(){
-  try{
-    if (topkSel && topkSel.value !== "10"){
-      topkSel.value = "10";
-      // some browsers need change event to refresh UI state
-      topkSel.dispatchEvent(new Event("change"));
-    }
-  }catch(e){}
-}
 
 const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
@@ -241,7 +232,6 @@ function freezeFrame(){
 }
 
 function unfreeze(){
-  ensureTopK10();
   frozen = false;
   cam.style.display = "block";
   shot.style.display = "none";
@@ -320,34 +310,6 @@ file.addEventListener("change", async () => {
 });
 
 
-img.onload = () => {
-    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
-    cam.style.display = "none";
-    shot.style.display = "block";
-    frozen = true;
-
-    btnCapture.style.display = "none";
-    btnRetake.style.display = "inline-block";
-    enableActions(true);
-
-    setStatus("画像を読み込みました：🔎で解析");
-  };
-  const url = URL.createObjectURL(f);
-  img.onload = () => {
-    try{ URL.revokeObjectURL(url); }catch(e){}
-    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
-    cam.style.display = "none";
-    shot.style.display = "block";
-    frozen = true;
-
-    btnCapture.style.display = "none";
-    btnRetake.style.display = "inline-block";
-    enableActions(true);
-
-    setStatus("画像を読み込みました：🔎で解析");
-  };
-  img.src = url;
-});
 
 // ---------- resize + blob ----------
 async function canvasToJpegBlob(canvas){
@@ -466,9 +428,7 @@ btnAnalyze.onclick = async () => {
 
 // Speak top N sequentially (simple queue)
 
-ensureTopK10();
 // Kickoff
-try{ topkSel.value = "10"; }catch(e){}
 setStatus("📸を押すとカメラが起動します（許可が必要です）");
 // PWA service worker
 if ("serviceWorker" in navigator){

@@ -1,9 +1,10 @@
-const CACHE = "photo-translator-pwa-v10";
+const CACHE = "photo-translator-pwa-v11";
 const ASSETS = [
   "./",
   "./index.html",
   "./app.js",
   "./manifest.json",
+  "./sw.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
 ];
