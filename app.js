@@ -38,34 +38,8 @@ const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
 
 // ====== CONFIG ======
-const DEFAULT_SERVER_BASE = "https://mazzgogo-photo-translator.hf.space";
-function normalizeBase(u){
-  const s = String(u||"").trim();
-  if (!s) return "";
-  // allow user to paste without scheme (e.g., localhost:7860)
-  const withScheme = /^(https?:)?\/\//i.test(s) ? s : ("https://" + s);
-  return withScheme.replace(/\/+$/, "");
-}
-let SERVER_BASE = normalizeBase(localStorage.getItem("serverBase") || DEFAULT_SERVER_BASE);
-function taggerBase(){ return SERVER_BASE; }
-function translateUrl(){ return SERVER_BASE ? (SERVER_BASE + "/translate") : ""; }
-
-const btnServer = document.getElementById("btnServer");
-if (btnServer){
-  btnServer.onclick = () => {
-    const cur = SERVER_BASE || "";
-    const next = prompt("サーバURL（例：https://xxxxx.hf.space  または  http://localhost:7860）", cur);
-    if (next === null) return;
-    const nb = normalizeBase(next);
-    if (!nb){
-      alert("空のURLは設定できません。");
-      return;
-    }
-    SERVER_BASE = nb;
-    localStorage.setItem("serverBase", SERVER_BASE);
-    setStatus("サーバを設定しました： " + SERVER_BASE);
-  };
-}
+const TAGGER_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/";
+const TRANSLATE_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/translate";
 
 
 // Image upload settings
@@ -228,14 +202,21 @@ function renderTags(items){
 // ---------- camera ----------
 async function initCam(){
   try{
-    stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
+    const primaryConstraints = { video: { facingMode: { ideal: "environment" } }, audio: false };
+    const fallbackConstraints = { video: true, audio: false };
+    try{
+      stream = await navigator.mediaDevices.getUserMedia(primaryConstraints);
+    }catch(e1){
+      console.warn("primary getUserMedia failed, retrying with fallback", e1);
+      stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+    }
     cam.srcObject = stream;
     await new Promise(res => cam.onloadedmetadata = res);
     await cam.play();
     setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
   }catch(e){
     console.error(e);
-    setStatus("カメラを起動できませんでした。HTTPS / 権限 / ブラウザ設定を確認してください。");
+    setStatus("カメラを起動できませんでした。権限（カメラ許可）/ HTTPS / ブラウザ設定をご確認ください。ダメな場合は🖼から撮影/選択できます。");
   }
 }
 
@@ -273,7 +254,19 @@ function unfreeze(){
   setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
 }
 
-btnCapture.onclick = freezeFrame;
+btnCapture.onclick = async () => {
+  // iOS/Android: getUserMedia often requires a user gesture.
+  if (!stream){
+    try{
+      await initCam();
+    }catch(e){
+      // If camera cannot start, fall back to file input (with capture on mobile)
+      try{ file.click(); }catch(_e){}
+      return;
+    }
+  }
+  freezeFrame();
+};
 btnRetake.onclick = unfreeze;
 
 // ---------- file load ----------
@@ -317,26 +310,17 @@ async function canvasToJpegBlob(canvas){
 
 // ---------- API ----------
 async function postTags(topk){
-  const base = taggerBase();
-  if (!base){
-    throw new Error("SERVER_BASE not set");
+  if (!TAGGER_ENDPOINT){
+    throw new Error("TAGGER_ENDPOINT not set");
   }
   const blob = await canvasToJpegBlob(shot);
   const fd = new FormData();
   fd.append("image", blob, "capture.jpg");
 
-  const url = new URL(base.replace(/\/$/, "") + "/tagger");
+  const url = new URL(TAGGER_ENDPOINT.replace(/\/$/, "") + "/tagger");
   url.searchParams.set("topk", String(topk));
 
   const r = await fetch(url.toString(), { method:"POST", body: fd });
-  if (r.status === 503){
-    let j = null;
-    try{ j = await r.json(); }catch(e){}
-    const err = new Error("warming_up");
-    err.code = "WARMING_UP";
-    err.detail = j;
-    throw err;
-  }
   if (!r.ok) throw new Error("tagger http " + r.status);
   const j = await r.json();
 
@@ -348,17 +332,12 @@ async function postTags(topk){
 }
 
 async function translateTexts(texts, target){
-  const url = translateUrl();
-  if (!url) return null;
-  const r = await fetch(url, {
+  if (!TRANSLATE_ENDPOINT) return null;
+  const r = await fetch(TRANSLATE_ENDPOINT, {
     method:"POST",
     headers:{ "Content-Type":"application/json" },
     body: JSON.stringify({ target, texts })
   });
-  if (r.status === 503){
-    // server warming up; treat as unavailable for now
-    return null;
-  }
   if (!r.ok) throw new Error("translate http " + r.status);
   const j = await r.json();
   if (j && (j.error || j.detail) && !(j.textsTranslated && j.textsTranslated.length)) {
@@ -378,7 +357,7 @@ btnAnalyze.onclick = async () => {
     setStatus("タグ解析中… / Working… / Analyzing…");
     tagsEl.textContent = "解析中… / Working…";
 
-    const tagsEn = await postTagsWithRetry(topk);
+    const tagsEn = await postTags(topk);
     if (!tagsEn.length){
       renderTags([]);
       setStatus("タグが空でした。 / No tags returned.");
@@ -388,8 +367,8 @@ btnAnalyze.onclick = async () => {
     const texts = tagsEn.map(t => t.label);
 
     let trJa = null, trZh = null, trKo = null;
-    if (!translateUrl()){
-      setStatus("翻訳API未設定のため英語のみ表示しています（⚙ サーバ でURLを設定） / Translation API not set, showing English only (set it via ⚙).");
+    if (!TRANSLATE_ENDPOINT){
+      setStatus("翻訳API未設定のため英語のみ表示しています（TRANSLATE_ENDPOINTを設定してください） / Translation API not set, showing English only (set TRANSLATE_ENDPOINT).");
     } else {
       setStatus("翻訳中… / Translating…");
       try{ trJa = await translateTexts(texts, "ja"); }catch(e){ trJa = null; }
@@ -409,15 +388,15 @@ btnAnalyze.onclick = async () => {
     renderTags(items);
 
     // If any translation is missing, mention it lightly (still usable).
-    if (translateUrl() && (!trJa || !trZh || !trKo)){
+    if (TRANSLATE_ENDPOINT && (!trJa || !trZh || !trKo)){
       setStatus("完了：一部翻訳に失敗した単語は英語で補っています / Done (some words fall back to English). / Done");
     } else {
       setStatus("完了：各行をタップするとその言語で発音します / Done: tap to speak. / Done");
     }
   }catch(e){
     console.error(e);
-    if (String(e?.message || "").includes("SERVER_BASE not set")){
-      setStatus("サーバURLが未設定です。⚙ サーバ で設定してください。 / Server URL is not set. Use ⚙ to set it.");
+    if (String(e?.message || "").includes("TAGGER_ENDPOINT not set")){
+      setStatus("TAGGER_ENDPOINT が未設定です。app.js を開いてエンドポイントを設定してください。 / TAGGER_ENDPOINT is not set. Please set it in app.js.");
     } else {
       setStatus("エラー：" + (e?.message || e));
     }
@@ -430,8 +409,7 @@ btnAnalyze.onclick = async () => {
 ensureTopK10();
 // Kickoff
 try{ topkSel.value = "10"; }catch(e){}
-initCam();
-
+setStatus("📸を押すとカメラが起動します（許可が必要です）");
 // PWA service worker
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("./sw.js").catch(()=>{});
