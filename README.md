@@ -90,33 +90,8 @@ iOS側に英語音声が入っていない／日本語音声が優先されて�
 
 ## スクリーンショット / Screenshot
 
-> リポジトリに画像を置いた上で、パスを合わせてください。
-
-例:
-- `docs/screenshot1.jpg`
-
-```md
+md
 ![screenshot](docs/screenshot1.jpg)
 ```
 
 ---
-
-## 開発者向けメモ（任意） / For developers (optional)
-
-Space には簡単なAPIがあります（例）:
-
-- `GET /health` : ヘルスチェック
-- `POST /tagger` : 画像→タグ推定
-- `POST /translate` : テキスト翻訳（構成次第）
-
-フロントエンドは `index.html` + `app.js` の静的構成で、PWA用に `manifest.json` / `sw.js` を含みます。
-
----
-
-## ライセンス / License
-
-必要に応じて追記してください（例: MIT）。
-
-
----
-SW: v10 build 2026-01-04 05:28:04
