@@ -25,6 +25,15 @@ const btnPick = document.getElementById("btnPick");
 const file = document.getElementById("file");
 const topkSel = document.getElementById("topk");
 
+function ensureTopK10(){
+  try{
+    if (topkSel && topkSel.value !== "10"){
+      topkSel.value = "10";
+      // some browsers need change event to refresh UI state
+      topkSel.dispatchEvent(new Event("change"));
+    }
+  }catch(e){}
+}
 
 const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
@@ -191,6 +200,18 @@ function renderTags(items){
   }
 }
 
+
+async function waitForVideoReady(timeoutMs=2500){
+  const start = performance.now();
+  while (performance.now() - start < timeoutMs){
+    const w = cam.videoWidth || 0;
+    const h = cam.videoHeight || 0;
+    if (w > 0 && h > 0) return true;
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  return false;
+}
+
 // ---------- camera ----------
 async function initCam(){
   try{
@@ -209,17 +230,22 @@ async function initCam(){
   else { setStatus("準備完了：📸で撮影 → 🔎でタグ解析"); }
   }catch(e){
     console.error(e);
-    setStatus("カメラを起動できませんでした。権限（カメラ許可）/ HTTPS / ブラウザ設定をご確認ください。ダメな場合は🖼から撮影/選択できます。");
+    if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")){
+      setStatus("カメラ権限が必要です：📸を1回タップして許可してください（許可後は自動で映像が出ます）。ダメな場合は🖼から撮影/選択できます。");
+    } else {
+      setStatus("カメラを起動できませんでした。権限（カメラ許可）/ HTTPS / ブラウザ設定をご確認ください。ダメな場合は🖼から撮影/選択できます。");
+    }
   }
 }
 
-function freezeFrame(){
-  const w = cam.videoWidth || 0;
-  const h = cam.videoHeight || 0;
-  if (!w || !h){
-    setStatus("カメラ映像が取得できませんでした。");
+async function freezeFrame(){
+  // On some mobile browsers, videoWidth/videoHeight becomes available a bit later.
+  if (!await waitForVideoReady()){
+    setStatus("カメラ映像の準備待ちです。もう一度📸をタップしてください（または権限をご確認ください）。");
     return;
   }
+  const w = cam.videoWidth || 0;
+  const h = cam.videoHeight || 0;
   drawImageToShot(cam, w, h);
   cam.style.display = "none";
   shot.style.display = "block";
@@ -232,6 +258,7 @@ function freezeFrame(){
 }
 
 function unfreeze(){
+  ensureTopK10();
   frozen = false;
   cam.style.display = "block";
   shot.style.display = "none";
@@ -258,9 +285,23 @@ btnCapture.onclick = async () => {
       return;
     }
   }
-  freezeFrame();
+  await freezeFrame();
 };
 btnRetake.onclick = unfreeze;
+
+
+// Best-effort: try to start camera on load (works on many Android browsers).
+async function attemptAutoInitCam(){
+  if (!navigator.mediaDevices?.getUserMedia) return;
+  if (stream) return;
+  try{
+    await initCam();
+  }catch(e){
+    // Some browsers require a user gesture; we'll fall back to a tap.
+    console.warn("auto initCam blocked", e);
+  }
+}
+window.addEventListener("load", () => { attemptAutoInitCam(); });
 
 // ---------- image picker ----------
 if (btnPick){
@@ -310,6 +351,34 @@ file.addEventListener("change", async () => {
 });
 
 
+img.onload = () => {
+    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
+    cam.style.display = "none";
+    shot.style.display = "block";
+    frozen = true;
+
+    btnCapture.style.display = "none";
+    btnRetake.style.display = "inline-block";
+    enableActions(true);
+
+    setStatus("画像を読み込みました：🔎で解析");
+  };
+  const url = URL.createObjectURL(f);
+  img.onload = () => {
+    try{ URL.revokeObjectURL(url); }catch(e){}
+    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
+    cam.style.display = "none";
+    shot.style.display = "block";
+    frozen = true;
+
+    btnCapture.style.display = "none";
+    btnRetake.style.display = "inline-block";
+    enableActions(true);
+
+    setStatus("画像を読み込みました：🔎で解析");
+  };
+  img.src = url;
+});
 
 // ---------- resize + blob ----------
 async function canvasToJpegBlob(canvas){
@@ -428,7 +497,9 @@ btnAnalyze.onclick = async () => {
 
 // Speak top N sequentially (simple queue)
 
+ensureTopK10();
 // Kickoff
+try{ topkSel.value = "10"; }catch(e){}
 setStatus("📸を押すとカメラが起動します（許可が必要です）");
 // PWA service worker
 if ("serviceWorker" in navigator){

@@ -15,7 +15,7 @@
     html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
       font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP",sans-serif;}
     #wrap{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr auto;gap:10px;
-      padding:10px;box-sizing:border-box;}
+      padding:calc(10px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));box-sizing:border-box;}
     .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:10px;}
     .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
@@ -66,17 +66,40 @@
     
 
     #file{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;}
+
+    input[type="file"]{display:none}
+
+    /* Touch-friendly UI */
+    button,select,input{min-height:44px; line-height:1.2; touch-action:manipulation;}
+    button{display:inline-flex;align-items:center;justify-content:center;gap:8px;}
+    @media (pointer:coarse){
+      button,select,input{font-size:16px;padding:14px 16px;border-radius:14px;}
+      .panel{border-radius:16px}
+      #wrap{gap:12px}
+      .muted{font-size:13px}
+      .tmain{font-size:16px}
+      .score{font-size:12px}
+    }
+    @media (max-width: 640px){
+      #wrap{padding:12px}
+      .bar{flex-direction:column;align-items:stretch}
+      .row{width:100%}
+      .row.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .row.controls button{width:100%}
+      #stage{max-height:52vh;min-height:260px}
+      #tags{max-height:34vh}
+    }
 </style>
 </head>
 <body>
   <div id="wrap">
     <div class="panel">
       <div class="bar">
-        <div class="row">
+        <div class="row controls">
           <button id="btnCapture">📸 撮影 / Capture</button>
           <button id="btnRetake" style="display:none">↩︎ 撮り直し</button>
           <button id="btnAnalyze" disabled>🔎 タグ解析 / Analyze</button>
-          <button id="btnPick" type="button" class="pill">🖼 画像</button>
+          <button id="btnPick" type="button">🖼 画像</button>
           <input id="file" type="file" accept="image/*" />
         </div>
         <div class="row">
