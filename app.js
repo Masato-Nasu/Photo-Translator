@@ -1,56 +1,81 @@
-
-function drawImageToShot(imgOrVideo, srcW, srcH){
-  const longEdge = Math.max(srcW, srcH);
-  const scale = Math.min(1, PREVIEW_MAX_DIM / longEdge);
-  const tw = Math.max(1, Math.round(srcW * scale));
-  const th = Math.max(1, Math.round(srcH * scale));
-  shot.width = tw; shot.height = th;
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.drawImage(imgOrVideo, 0, 0, tw, th);
-}
-
-// Photo Translator PWA (Capture/Upload -> Top-K tags -> JA/ZH/KO+EN) + TTS
-// Connects to your server: POST TAGGER_ENDPOINT/tagger?topk=30 (multipart image)
-// Optional: POST TRANSLATE_ENDPOINT with { target, texts } -> { textsTranslated }
+// Photo Translator PWA
+// Capture/Upload -> Top-K tags (EN) -> Translate to JA/ZH/KO -> Speak via device TTS
+//
+// Server endpoints (FastAPI on HF Spaces):
+//   POST /tagger?topk=30   (multipart: image)
+//   POST /translate        (json: { target, texts }) -> { textsTranslated }
 
 const cam = document.getElementById("cam");
 const shot = document.getElementById("shot");
 const ctx = shot.getContext("2d");
 
-const btnStartCam = document.getElementById("btnStartCam");
-const btnPick    = document.getElementById("btnPick");
-const fileInput  = document.getElementById("fileInput");
 const btnCapture = document.getElementById("btnCapture");
-const btnRetake  = document.getElementById("btnRetake");
+const btnRetake = document.getElementById("btnRetake");
 const btnAnalyze = document.getElementById("btnAnalyze");
-
+const btnPick = document.getElementById("btnPick");
+const file = document.getElementById("file");
 const topkSel = document.getElementById("topk");
+
 const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
 
-const camOverlay = document.getElementById("camOverlay");
-const btnOverlayStart = document.getElementById("btnOverlayStart");
-
-
 // ====== CONFIG ======
-const TAGGER_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/";
+const TAGGER_ENDPOINT = "https://mazzgogo-photo-translator.hf.space";
 const TRANSLATE_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/translate";
 
-
-// Image upload settings
-const MAX_DIM = 1024;
-const PREVIEW_MAX_DIM = 1600; // keep UI responsive even for huge photos      // resize long edge to reduce bandwidth
-const JPEG_QUALITY = 0.86;
+// Image upload settings (speed/quality trade)
+const MAX_DIM = 768;          // resize long edge to reduce bandwidth (faster)
+const JPEG_QUALITY = 0.80;
+const PREVIEW_MAX_DIM = 1600; // limit on-screen canvas size so UI stays usable
 
 let stream = null;
 let frozen = false;
-let lastItems = []; // [{en, ja, zh, ko, score}]
+let lastRunId = 0; // cancels stale async results
 
+// ---------- UI helpers ----------
+function setStatus(s) {
+  statusEl.textContent = s;
+}
 
-// ---------- helpers ----------
-function setStatus(s){ statusEl.textContent = s; }
+function enableActions(enabled) {
+  btnAnalyze.disabled = !enabled;
+}
 
-function langToTTS(lang){
+function escapeHtml(s) {
+  return (s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]));
+}
+
+// ---------- canvas draw ----------
+function drawImageToShot(src, srcW, srcH) {
+  const longEdge = Math.max(srcW, srcH);
+  const scale = Math.min(1, PREVIEW_MAX_DIM / longEdge);
+  const tw = Math.max(1, Math.round(srcW * scale));
+  const th = Math.max(1, Math.round(srcH * scale));
+  shot.width = tw;
+  shot.height = th;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(src, 0, 0, tw, th);
+}
+
+async function waitForVideoReady(timeoutMs = 1500) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < timeoutMs) {
+    const w = cam.videoWidth || 0;
+    const h = cam.videoHeight || 0;
+    if (w > 0 && h > 0 && cam.readyState >= 2) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+}
+
+// ---------- TTS ----------
+function langToTTS(lang) {
   if (lang === "ja") return "ja-JP";
   if (lang === "en") return "en-US";
   if (lang === "zh") return "zh-CN";
@@ -58,28 +83,31 @@ function langToTTS(lang){
   return "en-US";
 }
 
-
 let _voices = [];
-function refreshVoices(){
-  try{ _voices = speechSynthesis.getVoices() || []; }catch(e){ _voices = []; }
+function refreshVoices() {
+  try {
+    _voices = speechSynthesis.getVoices() || [];
+  } catch {
+    _voices = [];
+  }
 }
-function pickVoice(langTag){
+function pickVoice(langTag) {
   refreshVoices();
   const lt = (langTag || "").toLowerCase();
-  // Prefer exact match, then prefix match (e.g., "en" matches "en-US")
-  let v = _voices.find(v => (v.lang || "").toLowerCase() === lt);
-  if (!v) v = _voices.find(v => (v.lang || "").toLowerCase().startsWith(lt.split("-")[0]));
+  let v = _voices.find((x) => (x.lang || "").toLowerCase() === lt);
+  if (!v) v = _voices.find((x) => (x.lang || "").toLowerCase().startsWith(lt.split("-")[0]));
   return v || null;
 }
-if (typeof speechSynthesis !== "undefined"){
+if (typeof speechSynthesis !== "undefined") {
   speechSynthesis.onvoiceschanged = refreshVoices;
   refreshVoices();
 }
 
-function speak(text, lang){
-  if (!text) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
+function speak(text, lang) {
+  const t = (text || "").trim();
+  if (!t || t === "—" || t === "…") return;
+  try { speechSynthesis.cancel(); } catch {}
+  const u = new SpeechSynthesisUtterance(t);
   const tag = langToTTS(lang);
   u.lang = tag;
   const v = pickVoice(tag);
@@ -87,207 +115,221 @@ function speak(text, lang){
   speechSynthesis.speak(u);
 }
 
-function escapeHtml(s){
-  return (s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+// ---------- Translation cache (localStorage) ----------
+const TR_CACHE_PREFIX = "pt_tr_cache_v1_";
+const TR_CACHE_MAX_KEYS = 2500;
+
+function loadTrCache(lang) {
+  try {
+    const raw = localStorage.getItem(TR_CACHE_PREFIX + lang);
+    const obj = raw ? JSON.parse(raw) : {};
+    return (obj && typeof obj === "object") ? obj : {};
+  } catch {
+    return {};
+  }
 }
 
-function enableActions(enabled){
-  btnAnalyze.disabled = !enabled;
+function trimTrCache(cacheObj) {
+  const keys = Object.keys(cacheObj);
+  if (keys.length <= TR_CACHE_MAX_KEYS) return;
+  // Delete oldest entries (object keeps insertion order).
+  const removeN = keys.length - TR_CACHE_MAX_KEYS;
+  for (let i = 0; i < removeN; i++) {
+    delete cacheObj[keys[i]];
+  }
 }
 
-function renderTags(items){
+function saveTrCache(lang, cacheObj) {
+  try {
+    trimTrCache(cacheObj);
+    localStorage.setItem(TR_CACHE_PREFIX + lang, JSON.stringify(cacheObj));
+  } catch {
+    // storage full or disabled -> ignore
+  }
+}
+
+// ---------- API ----------
+async function canvasToJpegBlob(canvas) {
+  const w = canvas.width;
+  const h = canvas.height;
+  const longEdge = Math.max(w, h);
+  const scale = Math.min(1, MAX_DIM / longEdge);
+
+  if (scale >= 1) {
+    return await new Promise((res) => canvas.toBlob(res, "image/jpeg", JPEG_QUALITY));
+  }
+
+  const tw = Math.max(1, Math.round(w * scale));
+  const th = Math.max(1, Math.round(h * scale));
+  const tmp = document.createElement("canvas");
+  tmp.width = tw;
+  tmp.height = th;
+  const tctx = tmp.getContext("2d", { alpha: false });
+  tctx.drawImage(canvas, 0, 0, tw, th);
+  return await new Promise((res) => tmp.toBlob(res, "image/jpeg", JPEG_QUALITY));
+}
+
+async function postTags(topk) {
+  const blob = await canvasToJpegBlob(shot);
+  const fd = new FormData();
+  fd.append("image", blob, "capture.jpg");
+
+  const url = new URL(TAGGER_ENDPOINT.replace(/\/$/, "") + "/tagger");
+  url.searchParams.set("topk", String(topk));
+
+  const r = await fetch(url.toString(), { method: "POST", body: fd });
+  if (!r.ok) throw new Error("tagger http " + r.status);
+  const j = await r.json();
+
+  const tags = (j.tags || []).map((x) => ({
+    label: x.label_en ?? x.label ?? "",
+    score: Number(x.score ?? 0),
+  }));
+  return tags.filter((t) => t.label);
+}
+
+async function translateTexts(texts, target) {
+  const r = await fetch(TRANSLATE_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target, texts }),
+  });
+  if (!r.ok) throw new Error("translate http " + r.status);
+  const j = await r.json();
+  return j.textsTranslated || null;
+}
+
+async function translateWithCache(texts, lang) {
+  const cache = loadTrCache(lang);
+  const out = new Array(texts.length);
+  const idxByKey = new Map();
+
+  for (let i = 0; i < texts.length; i++) {
+    const key = (texts[i] || "").trim();
+    if (!key) {
+      out[i] = "";
+      continue;
+    }
+    if (cache[key]) {
+      out[i] = cache[key];
+      continue;
+    }
+    out[i] = null;
+    if (!idxByKey.has(key)) idxByKey.set(key, []);
+    idxByKey.get(key).push(i);
+  }
+
+  const missing = [...idxByKey.keys()];
+  if (missing.length === 0) return out;
+
+  const tr = await translateTexts(missing, lang);
+  if (!tr || !Array.isArray(tr)) return out;
+
+  for (let j = 0; j < missing.length; j++) {
+    const key = missing[j];
+    const val = (tr[j] || "").trim();
+    if (val) cache[key] = val;
+    const idxs = idxByKey.get(key) || [];
+    for (const i of idxs) out[i] = val || null;
+  }
+
+  saveTrCache(lang, cache);
+  return out;
+}
+
+// ---------- Rendering (group 4 languages per tag) ----------
+function renderTags(items) {
   tagsEl.innerHTML = "";
-  if (!items.length){
+  if (!items || !items.length) {
     tagsEl.textContent = "タグが取得できませんでした。";
     return;
   }
 
-  for (const it of items){
+  const makeSeg = (lang, label, text) => {
+    const safeText = escapeHtml(text || "—");
+    const disabled = (!text || text === "—" || text === "…") ? "disabled" : "";
+    return `
+      <div class="seg" data-lang="${lang}">
+        <span class="tlang">${label}</span>
+        <span class="ttext">${safeText}</span>
+        <button class="sbtn" type="button" ${disabled} aria-label="speak-${lang}">🔊</button>
+      </div>
+    `;
+  };
+
+  for (const it of items) {
     const row = document.createElement("div");
     row.className = "tag";
 
-    const en = it.en || "—";
-    const ja = it.ja || "—";
-    const zh = it.zh || "—";
-    const ko = it.ko || "—";
-    const score = (it.score*100).toFixed(1) + "%";
-
     row.innerHTML = `
-      <div class="tline" data-lang="en">
-        <div class="tleft">
-          <span class="tlang">🇺🇸 EN</span>
-          <span class="tmain">${escapeHtml(en)}</span>
-        </div>
-        <div class="tright">
-          <span class="score">${score}</span>
-          <button class="sbtn" aria-label="speak-en">🔊</button>
-        </div>
+      <div class="tagHead">
+        <span class="tagRank">#${it.rank ?? ""}</span>
+        <span class="score">${((it.score ?? 0) * 100).toFixed(1)}%</span>
       </div>
-
-      <div class="tline" data-lang="ja">
-        <div class="tleft">
-          <span class="tlang">🇯🇵 JA</span>
-          <span class="tmain">${escapeHtml(ja)}</span>
-          <span class="tgloss en-gloss">(${escapeHtml(en)})</span>
-        </div>
-        <div class="tright">
-          <button class="sbtn" aria-label="speak-ja">🔊</button>
-        </div>
-      </div>
-
-      <div class="tline" data-lang="zh">
-        <div class="tleft">
-          <span class="tlang">🇨🇳 ZH</span>
-          <span class="tmain">${escapeHtml(zh)}</span>
-          <span class="tgloss en-gloss">(${escapeHtml(en)})</span>
-        </div>
-        <div class="tright">
-          <button class="sbtn" aria-label="speak-zh">🔊</button>
-        </div>
-      </div>
-
-      <div class="tline" data-lang="ko">
-        <div class="tleft">
-          <span class="tlang">🇰🇷 KO</span>
-          <span class="tmain">${escapeHtml(ko)}</span>
-          <span class="tgloss en-gloss">(${escapeHtml(en)})</span>
-        </div>
-        <div class="tright">
-          <button class="sbtn" aria-label="speak-ko">🔊</button>
-        </div>
+      <div class="tgroup">
+        ${makeSeg("en", "🇺🇸 EN", it.en)}
+        ${makeSeg("ja", "🇯🇵 JA", it.ja)}
+        ${makeSeg("zh", "🇨🇳 ZH", it.zh)}
+        ${makeSeg("ko", "🇰🇷 KO", it.ko)}
       </div>
     `;
 
-    const bindLine = (lang, text) => {
-      const line = row.querySelector(`.tline[data-lang="${lang}"]`);
-      const btn = line.querySelector(".sbtn");
-      const main = line.querySelector(".tmain");
-      const gloss = line.querySelector(".en-gloss");
-
-      const sayMain = () => {
-        const t = (text || "").trim();
-        if (!t || t === "—") return;
-        speak(t, lang);
-      };
-      const sayEn = () => {
-        const t = (en || "").trim();
-        if (!t || t === "—") return;
-        speak(t, "en");
-      };
-
-      btn.onclick = sayMain;
-      main.onclick = sayMain;
-
-      // English line: gloss isn't present; we still allow clicking main to speak EN
-      if (lang !== "en" && gloss){
-        gloss.onclick = sayEn;
-      }
-
-      if (!text || text === "—") btn.disabled = true;
-    };
-
-    bindLine("en", en);
-    bindLine("ja", ja);
-    bindLine("zh", zh);
-    bindLine("ko", ko);
+    // Bind speak actions
+    for (const seg of row.querySelectorAll(".seg")) {
+      const lang = seg.dataset.lang;
+      const textEl = seg.querySelector(".ttext");
+      const btn = seg.querySelector(".sbtn");
+      const say = () => speak(textEl.textContent, lang);
+      textEl.onclick = say;
+      btn.onclick = say;
+    }
 
     tagsEl.appendChild(row);
   }
 }
 
-// ---------- camera ----------
-function showOverlay(show){
-  if (!camOverlay) return;
-  camOverlay.style.display = show ? "grid" : "none";
-}
+// ---------- Camera ----------
+async function initCam() {
+  const primary = { video: { facingMode: { ideal: "environment" } }, audio: false };
+  const fallback = { video: true, audio: false };
 
-async function waitForVideoReady(video, timeoutMs = 3500){
-  if ((video.videoWidth || 0) > 0 && (video.videoHeight || 0) > 0) return;
-  await new Promise((resolve, reject) => {
-    const t = setTimeout(() => { cleanup(); reject(new Error("video_not_ready")); }, timeoutMs);
-    const on = () => {
-      if ((video.videoWidth || 0) > 0 && (video.videoHeight || 0) > 0){
-        cleanup(); resolve();
-      }
-    };
-    function cleanup(){
-      clearTimeout(t);
-      video.removeEventListener("loadedmetadata", on);
-      video.removeEventListener("loadeddata", on);
-      video.removeEventListener("canplay", on);
+  try {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(primary);
+    } catch (e1) {
+      console.warn("primary getUserMedia failed, retrying with fallback", e1);
+      stream = await navigator.mediaDevices.getUserMedia(fallback);
     }
-    video.addEventListener("loadedmetadata", on);
-    video.addEventListener("loadeddata", on);
-    video.addEventListener("canplay", on);
-    on();
-  });
-}
-
-async function initCam(){
-  try{
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      throw Object.assign(new Error("getUserMedia_not_supported"), { name: "NotSupportedError" });
-    }
-    // Stop existing stream if any
-    if (stream){
-      try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
-      stream = null;
-    }
-    const tries = [
-      { video: { facingMode: { ideal: "environment" } }, audio: false },
-      { video: { facingMode: "environment" }, audio: false },
-      { video: { facingMode: { ideal: "user" } }, audio: false },
-      { video: true, audio: false },
-    ];
-    let lastErr = null;
-    for (const c of tries){
-      try{ stream = await navigator.mediaDevices.getUserMedia(c); lastErr = null; break; }
-      catch(e){ lastErr = e; }
-    }
-    if (lastErr) throw lastErr;
 
     cam.srcObject = stream;
-    // iOS/Safari: ensure inline playback + allow autoplay
-    try{ cam.setAttribute('playsinline',''); cam.setAttribute('webkit-playsinline',''); }catch(e){}
-    cam.muted = true;
-    cam.autoplay = true;
-    try{ await cam.play(); }catch(e){}
-    try{ await waitForVideoReady(cam); }catch(e){}
+    await new Promise((res) => (cam.onloadedmetadata = res));
+    await cam.play();
 
-    // Show camera view
-    showOverlay(false);
-    cam.style.display = "block";
-    shot.style.display = "none";
-    frozen = false;
-    btnRetake.style.display = "none";
-    btnCapture.style.display = "inline-flex";
-    btnAnalyze.disabled = true;
+    // Now the preview is live. Next tap captures.
+    btnCapture.textContent = "📸 撮影 / Capture";
 
-    setStatus("準備完了：📸で撮影 or 🖼で画像選択 → 🔎でタグ解析 / Ready: 📸 Capture or 🖼 Choose → 🔎 Analyze");
-  }catch(e){
+    setStatus("準備完了：📸で撮影 → 🔎でタグ解析 / または 🖼で画像選択");
+    return true;
+  } catch (e) {
     console.error(e);
-    showOverlay(true);
-    const name = e?.name || "";
-    if (name === "NotAllowedError" || name === "SecurityError"){
-      setStatus("カメラ許可が必要です。ブラウザのサイト設定でカメラを「許可」にしてください。 / Camera permission required. Allow camera in site settings.");
-    }else if (name === "NotReadableError"){
-      setStatus("カメラが他アプリで使用中の可能性があります（Zoom/Teams/カメラ等）。 / Camera may be in use by another app.");
-    }else{
-      setStatus("カメラを起動できませんでした（" + (name || "error") + "）。HTTPS / 権限 / ブラウザ設定を確認してください。 / Couldn’t start the camera.");
-    }
+    stream = null;
+    cam.srcObject = null;
+    setStatus("カメラを起動できませんでした。権限（カメラ許可）/ HTTPS / ブラウザ設定をご確認ください。ダメな場合は🖼から選べます。");
+    return false;
   }
 }
 
-async function freezeFrame(){
-  try{ await waitForVideoReady(cam); }catch(e){}
+async function freezeFrame() {
+  const ready = await waitForVideoReady(1500);
   const w = cam.videoWidth || 0;
   const h = cam.videoHeight || 0;
-  if (!w || !h){
-    setStatus("カメラ映像がまだ準備できていません。もう一度📸を押してください。 / Camera not ready yet. Tap 📸 again.");
-    return;
-  }
-  drawImageToShot(cam, w, h);
 
+  if (!ready || !w || !h) {
+    setStatus("カメラ映像の準備に時間がかかっています。もう一度📸を押すか、🖼から画像を選んでください。");
+    return false;
+  }
+
+  drawImageToShot(cam, w, h);
   cam.style.display = "none";
   shot.style.display = "block";
   frozen = true;
@@ -296,9 +338,10 @@ async function freezeFrame(){
   btnRetake.style.display = "inline-block";
   enableActions(true);
   setStatus("撮影しました：🔎で解析");
+  return true;
 }
 
-function unfreeze(){
+function unfreeze() {
   frozen = false;
   cam.style.display = "block";
   shot.style.display = "none";
@@ -307,224 +350,197 @@ function unfreeze(){
   btnRetake.style.display = "none";
 
   enableActions(false);
-  
   tagsEl.textContent = "まだ解析していません。";
-  lastItems = [];
-  setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
+
+  if (stream) {
+    btnCapture.textContent = "📸 撮影 / Capture";
+    setStatus("準備完了：📸で撮影 → 🔎でタグ解析 / または 🖼で画像選択");
+  } else {
+    btnCapture.textContent = "🎥 カメラ起動 / Start camera";
+    setStatus("📸を押すとカメラが起動します（許可が必要です） / または 🖼で画像選択");
+  }
 }
 
 btnCapture.onclick = async () => {
-  if (!stream){
-    setStatus("カメラ許可が必要です。先に📷を押してください。 / Please tap 📷 Start Camera first.");
-    await initCam();
-    if (!stream) return;
+  // Many mobile browsers require a user gesture for getUserMedia.
+  if (!stream) {
+    setStatus("カメラ起動中…（許可が必要です）");
+    const ok = await initCam();
+    if (!ok) {
+      try {
+        file.value = "";
+        file.click();
+      } catch {}
+      return;
+    }
+    // Start camera only (do not capture immediately).
+    return;
   }
   await freezeFrame();
 };
+
 btnRetake.onclick = unfreeze;
-btnStartCam.onclick = async () => { await initCam(); };
-if (btnOverlayStart){ btnOverlayStart.onclick = async () => { await initCam(); }; }
-btnPick.onclick = () => fileInput.click();
-fileInput.onchange = async () => {
-  const f = fileInput.files && fileInput.files[0];
+
+// ---------- Image picker ----------
+btnPick?.addEventListener("click", () => {
+  try {
+    file.value = "";
+    file.click();
+  } catch {}
+});
+
+file.addEventListener("change", async () => {
+  const f = file.files?.[0];
   if (!f) return;
-  try{
-    setStatus("画像を読み込み中… / Loading image…");
-    const url = URL.createObjectURL(f);
-    const img = new Image();
-    img.onload = () => {
-      try{
-        drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
-        cam.style.display = "none";
-        shot.style.display = "block";
-        frozen = true;
-        btnCapture.style.display = "none";
-        btnRetake.style.display = "inline-flex";
-        btnAnalyze.disabled = false;
-        setStatus("画像OK：🔎でタグ解析 / Image ready: 🔎 Analyze");
-      }finally{
-        URL.revokeObjectURL(url);
-        fileInput.value = "";
-      }
-    };
-    img.onerror = () => {
-      setStatus("画像を読み込めませんでした。別の画像で試してください。 / Could not load image.");
-      URL.revokeObjectURL(url);
-      fileInput.value = "";
-    };
-    img.src = url;
-  }catch(e){
-    console.error(e);
-    setStatus("画像読み込みでエラーが発生しました。 / Error while loading image.");
-  }
-};
 
-// ---------- resize + blob ----------
-async function canvasToJpegBlob(canvas){
-  const w = canvas.width, h = canvas.height;
-  const longEdge = Math.max(w, h);
-  const scale = Math.min(1, MAX_DIM / longEdge);
+  // Stop live camera stream while analyzing a picked image (battery saver)
+  try {
+    if (stream) {
+      for (const t of stream.getTracks()) t.stop();
+      stream = null;
+      cam.srcObject = null;
+    }
+  } catch {}
 
-  if (scale >= 1){
-    return await new Promise(res => canvas.toBlob(res, "image/jpeg", JPEG_QUALITY));
-  }
+  const img = new Image();
+  const url = URL.createObjectURL(f);
+  img.onload = () => {
+    try { URL.revokeObjectURL(url); } catch {}
+    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
 
-  const tw = Math.round(w * scale);
-  const th = Math.round(h * scale);
-  const tmp = document.createElement("canvas");
-  tmp.width = tw; tmp.height = th;
-  const tctx = tmp.getContext("2d", { alpha:false });
-  tctx.drawImage(canvas, 0, 0, tw, th);
-  return await new Promise(res => tmp.toBlob(res, "image/jpeg", JPEG_QUALITY));
-}
+    cam.style.display = "none";
+    shot.style.display = "block";
+    frozen = true;
 
-// ---------- API ----------
-async function postTags(topk){
-  if (!TAGGER_ENDPOINT){
-    throw new Error("TAGGER_ENDPOINT not set");
-  }
-  const blob = await canvasToJpegBlob(shot);
-  const fd = new FormData();
-  fd.append("image", blob, "capture.jpg");
+    btnCapture.style.display = "none";
+    btnRetake.style.display = "inline-block";
+    enableActions(true);
 
-  const url = new URL(TAGGER_ENDPOINT.replace(/\/$/, "") + "/tagger");
-  url.searchParams.set("topk", String(topk));
+    setStatus("画像を読み込みました：🔎で解析");
+  };
+  img.onerror = () => {
+    try { URL.revokeObjectURL(url); } catch {}
+    setStatus("画像を読み込めませんでした。別の画像を選んでください。");
+  };
+  img.src = url;
+});
 
-  const r = await fetch(url.toString(), { method:"POST", body: fd });
-  if (!r.ok) throw new Error("tagger http " + r.status);
-  const j = await r.json();
-
-  const tags = (j.tags || []).map(x => ({
-    label: x.label_en ?? x.label ?? "",
-    score: Number(x.score ?? 0)
-  }));
-  return tags.filter(t => t.label);
-}
-
-async function translateTexts(texts, target){
-  if (!TRANSLATE_ENDPOINT) return null;
-  const r = await fetch(TRANSLATE_ENDPOINT, {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ target, texts })
-  });
-  if (!r.ok) throw new Error("translate http " + r.status);
-  const j = await r.json();
-  if (j && (j.error || j.detail) && !(j.textsTranslated && j.textsTranslated.length)) {
-    return null;
-  }
-  return j.textsTranslated || null;
-}
-
+// ---------- Analyze ----------
 btnAnalyze.onclick = async () => {
-  try{
-    if (!frozen){
-      setStatus("まず📸で撮影するか、🖼で画像を読み込んでください。 / Please capture (📸) or choose an image (🖼) first.");
+  const runId = ++lastRunId;
+
+  try {
+    if (!frozen) {
+      setStatus("まず📸で撮影するか、🖼で画像を読み込んでください。");
       return;
     }
-    const topk = Number(topkSel.value || 30);
 
-    setStatus("タグ解析中… / Working… / Analyzing…");
-    tagsEl.textContent = "解析中… / Working…";
+    const topk = Number(topkSel.value || 10);
+
+    // Phase 1: Tagger
+    const t0 = performance.now();
+    setStatus("タグ解析中…（画像送信中）");
+    tagsEl.textContent = "解析中…";
 
     const tagsEn = await postTags(topk);
-    if (!tagsEn.length){
+    if (runId !== lastRunId) return;
+
+    if (!tagsEn.length) {
       renderTags([]);
-      setStatus("タグが空でした。 / No tags returned.");
+      setStatus("タグが空でした。");
       return;
     }
 
-    const texts = tagsEn.map(t => t.label);
-
-    let trJa = null, trZh = null, trKo = null;
-    if (!TRANSLATE_ENDPOINT){
-      setStatus("翻訳API未設定のため英語のみ表示しています（TRANSLATE_ENDPOINTを設定してください） / Translation API not set, showing English only (set TRANSLATE_ENDPOINT).");
-    } else {
-      setStatus("翻訳中… / Translating…");
-      try{ trJa = await translateTexts(texts, "ja"); }catch(e){ trJa = null; }
-      try{ trZh = await translateTexts(texts, "zh"); }catch(e){ trZh = null; }
-      try{ trKo = await translateTexts(texts, "ko"); }catch(e){ trKo = null; }
-    }
-
-    const items = tagsEn.map((t, i) => ({
+    // Show English immediately (perceived speed)
+    const texts = tagsEn.map((t) => t.label);
+    let items = tagsEn.map((t, i) => ({
+      rank: i + 1,
       en: t.label,
-      ja: trJa && trJa[i] ? trJa[i] : null,
-      zh: trZh && trZh[i] ? trZh[i] : null,
-      ko: trKo && trKo[i] ? trKo[i] : null,
-      score: t.score
+      ja: "…",
+      zh: "…",
+      ko: "…",
+      score: t.score,
     }));
-
-    lastItems = items;
     renderTags(items);
 
-    // If any translation is missing, mention it lightly (still usable).
-    if (TRANSLATE_ENDPOINT && (!trJa || !trZh || !trKo)){
-      setStatus("完了：一部翻訳に失敗した単語は英語で補っています / Done (some words fall back to English). / Done");
-    } else {
-      setStatus("完了：各行をタップするとその言語で発音します / Done: tap to speak. / Done");
+    // Phase 2: Translate (parallel) + local cache
+    setStatus("翻訳中…（JA / ZH / KO）");
+
+    let trJa = null;
+    let trZh = null;
+    let trKo = null;
+
+    try {
+      [trJa, trZh, trKo] = await Promise.all([
+        translateWithCache(texts, "ja").catch(() => null),
+        translateWithCache(texts, "zh").catch(() => null),
+        translateWithCache(texts, "ko").catch(() => null),
+      ]);
+    } catch {
+      // ignore; we handle null
     }
-  }catch(e){
+
+    if (runId !== lastRunId) return;
+
+    let hadFallback = false;
+    items = tagsEn.map((t, i) => {
+      const ja = trJa && trJa[i] ? trJa[i] : null;
+      const zh = trZh && trZh[i] ? trZh[i] : null;
+      const ko = trKo && trKo[i] ? trKo[i] : null;
+      if (!ja || !zh || !ko) hadFallback = true;
+      return {
+        rank: i + 1,
+        en: t.label,
+        ja: ja || "—",
+        zh: zh || "—",
+        ko: ko || "—",
+        score: t.score,
+      };
+    });
+
+    renderTags(items);
+
+    const dt = Math.round(performance.now() - t0);
+    if (hadFallback) {
+      setStatus(`完了（${dt}ms）：一部翻訳できない語は「—」になります`);
+    } else {
+      setStatus(`完了（${dt}ms）：各言語をタップすると発音します`);
+    }
+  } catch (e) {
     console.error(e);
-    if (String(e?.message || "").includes("TAGGER_ENDPOINT not set")){
-      setStatus("TAGGER_ENDPOINT が未設定です。app.js を開いてエンドポイントを設定してください。 / TAGGER_ENDPOINT is not set. Please set it in app.js.");
-    } else {
-      setStatus("エラー：" + (e?.message || e));
-    }
-    tagsEl.textContent = "エラーが発生しました。 / An error occurred.";
+    setStatus("エラー：" + (e?.message || e));
+    tagsEl.textContent = "エラーが発生しました。";
   }
 };
 
-// Speak top N sequentially (simple queue)
-
-function startCamOnFirstGesture(){
-  const once = async () => {
-    if (!stream){ await initCam(); }
-  };
-  window.addEventListener('pointerdown', once, { once:true });
-  window.addEventListener('touchstart', once, { once:true });
-}
-
-// Kickoff
-showOverlay(true);
-// best-effort auto start (works on some Android/Chrome when permission is already granted)
-(async () => {
-  try{
-    if (stream) return;
-    if (window.isSecureContext === false){
-      setStatus("HTTPSで開いてください（カメラはHTTPS必須です）。 / Please open via HTTPS.");
-      return;
-    }
-    await initCam();
-  }catch(e){
-    // ignore (user can tap)
-  }
-})();
-setStatus("カメラ未開始です。上のボタン、または画面中央をタップして許可してください。 / Tap to start camera and allow.");
-
-// PWA service worker
-if ("serviceWorker" in navigator){
-  navigator.serviceWorker.register("./sw.js")
-  .then((reg) => {
-    try{ reg.update(); }catch(e){}
-    // If a new SW is waiting, activate it immediately
-    if (reg.waiting){
-      try{ reg.waiting.postMessage({type:"SKIP_WAITING"}); }catch(e){}
-    }
-    reg.addEventListener("updatefound", () => {
-      const nw = reg.installing;
-      if (!nw) return;
-      nw.addEventListener("statechange", () => {
-        if (nw.state === "installed" && reg.waiting){
-          try{ reg.waiting.postMessage({type:"SKIP_WAITING"}); }catch(e){}
-        }
-      });
+// ---------- PWA service worker ----------
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker
+    .register("./sw.js", { scope: "./" })
+    .then((reg) => {
+      try { reg.update(); } catch {}
+      console.log("[SW] registered:", reg.scope);
+    })
+    .catch((err) => {
+      console.warn("[SW] register failed:", err);
     });
-  })
-  .catch(()=>{});
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    // Reload once when the new SW takes control
-    if (window.__swReloaded) return;
-    window.__swReloaded = true;
-    window.location.reload();
-  });
 }
+
+// ---------- lifecycle (battery / camera permissions) ----------
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    try {
+      if (stream) {
+        for (const t of stream.getTracks()) t.stop();
+        stream = null;
+        cam.srcObject = null;
+        btnCapture.textContent = "🎥 カメラ起動 / Start camera";
+      }
+    } catch {}
+  }
+});
+
+// Initial
+enableActions(false);
+btnCapture.textContent = "🎥 カメラ起動 / Start camera";
+setStatus("📸を押すとカメラが起動します（許可が必要です） / または 🖼で画像選択");

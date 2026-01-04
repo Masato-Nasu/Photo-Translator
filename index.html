@@ -2,123 +2,129 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#111111" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Photo Tagger (Top-K（上位）)</title>
   <link rel="manifest" href="./manifest.json" />
-  <title>Photo Translator</title>
+  <meta name="theme-color" content="#111111" />
   <style>
     :root{
-      --bg:#0b0b0c; --fg:#f2f2f2; --muted:rgba(255,255,255,.68);
+      --bg:#0b0b0c; --fg:#f2f2f2; --muted:rgba(255,255,255,.65);
       --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12);
-      --btn:rgba(255,255,255,.10); --btnb:rgba(255,255,255,.16);
+      --btn:rgba(255,255,255,.08); --btnb:rgba(255,255,255,.14);
     }
     html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
       font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP",sans-serif;}
     #wrap{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr auto;gap:10px;
       padding:10px;box-sizing:border-box;}
     .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:10px;}
-    .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;}
+    .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
     button,select,input{
       background:var(--btn);color:var(--fg);border:1px solid var(--btnb);
-      border-radius:12px;padding:10px 12px;font-size:14px;line-height:1;
+      border-radius:12px;padding:10px 12px;font-size:14px;
+      -webkit-tap-highlight-color: transparent;
     }
-    button{cursor:pointer; user-select:none; -webkit-tap-highlight-color: transparent;}
+    button{cursor:pointer}
     button:active{transform:translateY(1px)}
     button:disabled{opacity:.5;cursor:not-allowed}
-    .muted{color:var(--muted);font-size:12px}
-
-    #stage{position:relative;display:grid;place-items:center;border-radius:14px;overflow:hidden;background:#000;width:100%;
-      max-height:52vh;min-height:240px;aspect-ratio:4/3;}
+    #stage{position:relative;display:grid;place-items:center;border-radius:14px;overflow:hidden;background:#000;width:100%;max-height:55vh;min-height:240px;aspect-ratio:4/3;}
+@supports not (aspect-ratio: 1 / 1){ #stage{height:45vh;} }
     video,canvas{width:100%;height:100%;object-fit:cover;background:#000}
     canvas{display:none}
-    @supports not (aspect-ratio: 1 / 1){ #stage{height:45vh;} }
-
-    /* overlay: guarantees user gesture */
-    .overlay{
-      position:absolute; inset:0;
-      display:grid; place-items:center;
-      background:radial-gradient(circle at 50% 40%, rgba(0,0,0,.25), rgba(0,0,0,.65));
-      padding:14px;
-    }
-    .overlayInner{display:flex; flex-direction:column; gap:10px; align-items:center; text-align:center;}
-    .overlayBtn{
-      background:rgba(255,255,255,.14);
-      border:1px solid rgba(255,255,255,.28);
-      padding:14px 16px;
-      border-radius:14px;
-      font-size:16px;
-      font-weight:700;
-      min-height:48px;
-      width:min(320px, 92vw);
-    }
-    .overlayNote{max-width:min(420px, 92vw);}
-
     #tags{max-height:30vh;overflow:auto}
-    .tag{display:block}
-    .tline{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08);}
-    .tleft{display:flex;align-items:baseline;gap:8px;min-width:0}
-    .tlang{font-size:12px;color:var(--muted);white-space:nowrap}
-    .tmain{font-size:15px;font-weight:700;line-height:1.2;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .tgloss{font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer}
-    .tright{display:flex;align-items:center;gap:8px;white-space:nowrap}
-    .sbtn{padding:10px 12px;border-radius:12px;min-height:44px;min-width:44px}
-    .score{color:var(--muted);font-size:12px;white-space:nowrap}
 
-    /* Mobile: bigger controls */
-    @media (pointer: coarse){
+    /* Tag cards: one concept = one block (EN/JA/ZH/KO grouped) */
+    .tag{padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);}
+    .tagHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+    .tagRank{font-size:12px;color:var(--muted);white-space:nowrap}
+    .score{color:var(--muted);font-size:12px;white-space:nowrap}
+    .muted{color:var(--muted);font-size:12px}
+    .pill{display:inline-block;padding:2px 8px;border:1px solid rgba(255,255,255,.18);border-radius:999px;color:var(--muted)}
+
+    .tgroup{display:flex;flex-wrap:wrap;gap:10px;}
+    .seg{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 calc(50% - 10px);
+      padding:10px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:12px;}
+    .tlang{font-size:12px;color:var(--muted);white-space:nowrap}
+    .ttext{font-size:15px;font-weight:700;line-height:1.25;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+    .sep{color:rgba(255,255,255,.30);user-select:none;}
+    .sbtn{padding:8px 10px;border-radius:10px}
+    
+  
+    html{ -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+
+
+    /* --- overflow safety (prevents horizontal spill on some photos/tags) --- */
+    body{overflow-x:hidden;}
+    #wrap{overflow-x:hidden;}
+    header,main,footer,.panel,.bar,.row{max-width:100%;}
+    button,select,input{max-width:100%;}
+    .panel{overflow:hidden;}
+    .tag{display:block;width:100%;overflow:hidden;}
+    .ttext{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+    /* --- Mobile / touch: make controls and text comfortably tappable --- */
+    @media (pointer: coarse), (max-width: 680px){
       #wrap{gap:12px;padding:12px;}
-      button,select{font-size:16px;padding:14px 14px;min-height:48px}
-      .sbtn{min-height:48px;min-width:48px;font-size:18px}
-      .tmain{font-size:16px}
-      #stage{min-height:260px;max-height:54vh}
+      button,select,input{font-size:16px;padding:14px 16px;border-radius:14px;min-height:48px;}
+      .pill{padding:6px 10px;font-size:14px;}
+      .muted{font-size:13px;}
+      #stage{min-height:42vh;max-height:60vh;}
+      #tags{max-height:34vh;}
+      .ttext{font-size:17px;white-space:normal;}
+      .seg{flex:1 1 calc(50% - 10px);}
+      .sep{display:none;}
+      .sbtn{min-height:44px;}
     }
-  </style>
+    
+
+    #file{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;}
+</style>
 </head>
 <body>
   <div id="wrap">
-    <div class="panel bar" role="toolbar" aria-label="controls">
-      <div class="row">
-        <button id="btnStartCam" type="button">📷 カメラ</button>
-        <button id="btnCapture" type="button">📸 撮影</button>
-        <button id="btnRetake" type="button" style="display:none">↩ 撮り直し</button>
-        <button id="btnPick" type="button">🖼 画像</button>
-        <button id="btnAnalyze" type="button" disabled>🔎 タグ解析</button>
-        <input id="fileInput" type="file" accept="image/*" style="display:none" />
-      </div>
-      <div class="row">
-        <span class="muted">Top-K</span>
-        <select id="topk" aria-label="Top-K">
-          <option value="10">10</option>
-          <option value="20">20</option>
-          <option value="30" selected>30</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-          <option value="200">200</option>
-        </select>
-      </div>
-    </div>
-
-    <div id="stage" class="panel">
-      <video id="cam" autoplay muted playsinline></video>
-      <canvas id="shot"></canvas>
-
-      <div id="camOverlay" class="overlay">
-        <div class="overlayInner">
-          <button id="btnOverlayStart" class="overlayBtn" type="button">タップしてカメラ起動</button>
-          <div class="muted overlayNote">
-            初回は「許可」を選んでください。起動しない場合は、端末の<b>サイト設定</b>でカメラを「許可」にしてください。
-          </div>
+    <div class="panel">
+      <div class="bar">
+        <div class="row">
+          <button id="btnCapture">🎥 カメラ起動 / Start camera</button>
+          <button id="btnRetake" style="display:none">↩︎ 撮り直し</button>
+          <button id="btnAnalyze" disabled>🔎 タグ解析 / Analyze</button>
+          <button id="btnPick" type="button">🖼 画像</button>
+          <input id="file" type="file" accept="image/*" />
+        </div>
+        <div class="row">
+          <span class="muted">Languages</span>
+          <span class="pill">🇯🇵 JA</span><span class="pill">🇨🇳 ZH</span><span class="pill">🇰🇷 KO</span><span class="pill">🇺🇸 EN</span>
+          <span class="muted">Top-K（上位）</span>
+          <select id="topk">
+            <option selected>10</option>
+            <option>30</option>
+            <option>50</option>
+            <option>80</option>
+          </select>
         </div>
       </div>
+      <div class="muted" id="status">カメラ起動中…（許可が必要です）</div>
+    </div>
+
+    <div id="stage" class="panel" style="padding:0">
+      <video id="cam" playsinline autoplay muted></video>
+      <canvas id="shot"></canvas>
     </div>
 
     <div class="panel">
-      <div id="status" class="muted">読み込み中…</div>
+      <div class="bar" style="margin-bottom:6px">
+        <div class="row">
+          <b>Tags</b>
+          <span class="muted">（タップで発音）</span>
+        </div>
+</div>
       <div id="tags" class="muted">まだ解析していません。</div>
+      <div class="muted" style="margin-top:8px">
+        ※ 発音は端末のTTS音声に依存します（iPhone/Androidで差が出ます）。
+      </div>
     </div>
   </div>
 
-  <script src="./app.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>
