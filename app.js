@@ -20,6 +20,7 @@ function drawImageToShot(src, srcW, srcH){
 const btnCapture = document.getElementById("btnCapture");
 const btnRetake  = document.getElementById("btnRetake");
 const btnAnalyze = document.getElementById("btnAnalyze");
+const btnPick = document.getElementById("btnPick");
 
 const file = document.getElementById("file");
 const topkSel = document.getElementById("topk");
@@ -213,7 +214,8 @@ async function initCam(){
     cam.srcObject = stream;
     await new Promise(res => cam.onloadedmetadata = res);
     await cam.play();
-    setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
+    if (!stream){ btnCapture.textContent = "🎥 カメラ起動 / Start camera"; setStatus("🎥でカメラ起動（許可）→ 📸で撮影 → 🔎で解析 / もしくは 🖼で画像選択"); }
+  else { setStatus("準備完了：📸で撮影 → 🔎でタグ解析"); }
   }catch(e){
     console.error(e);
     setStatus("カメラを起動できませんでした。権限（カメラ許可）/ HTTPS / ブラウザ設定をご確認ください。ダメな場合は🖼から撮影/選択できます。");
@@ -251,7 +253,8 @@ function unfreeze(){
   
   tagsEl.textContent = "まだ解析していません。";
   lastItems = [];
-  setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
+  if (!stream){ btnCapture.textContent = "🎥 カメラ起動 / Start camera"; setStatus("🎥でカメラ起動（許可）→ 📸で撮影 → 🔎で解析 / もしくは 🖼で画像選択"); }
+  else { setStatus("準備完了：📸で撮影 → 🔎でタグ解析"); }
 }
 
 btnCapture.onclick = async () => {
@@ -260,7 +263,7 @@ btnCapture.onclick = async () => {
     try{
       await initCam();
     }catch(e){
-      // If camera cannot start, fall back to file input (with capture on mobile)
+      // If camera cannot start, fall back to file input
       try{ file.click(); }catch(_e){}
       return;
     }
@@ -269,12 +272,35 @@ btnCapture.onclick = async () => {
 };
 btnRetake.onclick = unfreeze;
 
+// ---------- image picker ----------
+if (btnPick){
+  btnPick.addEventListener("click", () => {
+    try{
+      // reset to allow selecting the same file again
+      file.value = "";
+      file.click(); // must be inside a user gesture
+    }catch(e){}
+  });
+}
+
 // ---------- file load ----------
 file.addEventListener("change", async () => {
   const f = file.files?.[0];
   if (!f) return;
+
+  // Stop live camera stream to save battery while analyzing a picked image
+  try{
+    if (stream){
+      for (const t of stream.getTracks()) t.stop();
+      stream = null;
+      cam.srcObject = null;
+    }
+  }catch(e){}
+
   const img = new Image();
+  const url = URL.createObjectURL(f);
   img.onload = () => {
+    try{ URL.revokeObjectURL(url); }catch(e){}
     drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
     cam.style.display = "none";
     shot.style.display = "block";
@@ -286,7 +312,41 @@ file.addEventListener("change", async () => {
 
     setStatus("画像を読み込みました：🔎で解析");
   };
-  img.src = URL.createObjectURL(f);
+  img.onerror = () => {
+    try{ URL.revokeObjectURL(url); }catch(e){}
+    setStatus("画像を読み込めませんでした。別の画像を選んでください。");
+  };
+  img.src = url;
+});
+
+
+img.onload = () => {
+    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
+    cam.style.display = "none";
+    shot.style.display = "block";
+    frozen = true;
+
+    btnCapture.style.display = "none";
+    btnRetake.style.display = "inline-block";
+    enableActions(true);
+
+    setStatus("画像を読み込みました：🔎で解析");
+  };
+  const url = URL.createObjectURL(f);
+  img.onload = () => {
+    try{ URL.revokeObjectURL(url); }catch(e){}
+    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
+    cam.style.display = "none";
+    shot.style.display = "block";
+    frozen = true;
+
+    btnCapture.style.display = "none";
+    btnRetake.style.display = "inline-block";
+    enableActions(true);
+
+    setStatus("画像を読み込みました：🔎で解析");
+  };
+  img.src = url;
 });
 
 // ---------- resize + blob ----------
@@ -414,3 +474,18 @@ setStatus("📸を押すとカメラが起動します（許可が必要です�
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("./sw.js").catch(()=>{});
 }
+
+
+// ---------- lifecycle (mobile battery / camera permission) ----------
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden){
+    // stop camera when backgrounded
+    try{
+      if (stream){
+        for (const t of stream.getTracks()) t.stop();
+        stream = null;
+        cam.srcObject = null;
+      }
+    }catch(e){}
+  }
+});

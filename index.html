@@ -64,6 +64,8 @@
     .tmain{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .tgloss{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60vw;}
     
+
+    #file{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;}
 </style>
 </head>
 <body>
@@ -74,10 +76,8 @@
           <button id="btnCapture">📸 撮影 / Capture</button>
           <button id="btnRetake" style="display:none">↩︎ 撮り直し</button>
           <button id="btnAnalyze" disabled>🔎 タグ解析 / Analyze</button>
-          <label class="pill" style="cursor:pointer">
-            🖼 画像
-            <input id="file" type="file" accept="image/*" capture="environment" style="display:none" />
-          </label>
+          <button id="btnPick" type="button" class="pill">🖼 画像</button>
+          <input id="file" type="file" accept="image/*" />
         </div>
         <div class="row">
           <span class="muted">Languages</span>
