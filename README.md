@@ -93,5 +93,4 @@ iOS側に英語音声が入っていない／日本語音声が優先されて�
 md
 ![screenshot](screenshot1.png)
 
-
 ---
