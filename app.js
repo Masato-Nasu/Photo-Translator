@@ -1,3 +1,14 @@
+
+function drawImageToShot(imgOrVideo, srcW, srcH){
+  const longEdge = Math.max(srcW, srcH);
+  const scale = Math.min(1, PREVIEW_MAX_DIM / longEdge);
+  const tw = Math.max(1, Math.round(srcW * scale));
+  const th = Math.max(1, Math.round(srcH * scale));
+  shot.width = tw; shot.height = th;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(imgOrVideo, 0, 0, tw, th);
+}
+
 // Photo Translator PWA (Capture/Upload -> Top-K tags -> JA/ZH/KO+EN) + TTS
 // Connects to your server: POST TAGGER_ENDPOINT/tagger?topk=30 (multipart image)
 // Optional: POST TRANSLATE_ENDPOINT with { target, texts } -> { textsTranslated }
@@ -6,37 +17,20 @@ const cam = document.getElementById("cam");
 const shot = document.getElementById("shot");
 const ctx = shot.getContext("2d");
 
-function drawImageToShot(src, srcW, srcH){
-  const longEdge = Math.max(srcW, srcH);
-  const scale = Math.min(1, PREVIEW_MAX_DIM / longEdge);
-  const tw = Math.max(1, Math.round(srcW * scale));
-  const th = Math.max(1, Math.round(srcH * scale));
-  shot.width = tw; shot.height = th;
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.drawImage(src, 0, 0, tw, th);
-}
-
-
+const btnStartCam = document.getElementById("btnStartCam");
+const btnPick    = document.getElementById("btnPick");
+const fileInput  = document.getElementById("fileInput");
 const btnCapture = document.getElementById("btnCapture");
 const btnRetake  = document.getElementById("btnRetake");
 const btnAnalyze = document.getElementById("btnAnalyze");
-const btnPick = document.getElementById("btnPick");
 
-const file = document.getElementById("file");
 const topkSel = document.getElementById("topk");
-
-function ensureTopK10(){
-  try{
-    if (topkSel && topkSel.value !== "10"){
-      topkSel.value = "10";
-      // some browsers need change event to refresh UI state
-      topkSel.dispatchEvent(new Event("change"));
-    }
-  }catch(e){}
-}
-
 const statusEl = document.getElementById("status");
 const tagsEl = document.getElementById("tags");
+
+const camOverlay = document.getElementById("camOverlay");
+const btnOverlayStart = document.getElementById("btnOverlayStart");
+
 
 // ====== CONFIG ======
 const TAGGER_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/";
@@ -44,9 +38,10 @@ const TRANSLATE_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/translate
 
 
 // Image upload settings
-const MAX_DIM = 1024;      // resize long edge to reduce bandwidth
+const MAX_DIM = 1024;
+const PREVIEW_MAX_DIM = 1600; // keep UI responsive even for huge photos      // resize long edge to reduce bandwidth
 const JPEG_QUALITY = 0.86;
-const PREVIEW_MAX_DIM = 1600; // limit on-screen canvas size so UI stays usable
+
 let stream = null;
 let frozen = false;
 let lastItems = []; // [{en, ja, zh, ko, score}]
@@ -200,53 +195,99 @@ function renderTags(items){
   }
 }
 
-
-async function waitForVideoReady(timeoutMs=2500){
-  const start = performance.now();
-  while (performance.now() - start < timeoutMs){
-    const w = cam.videoWidth || 0;
-    const h = cam.videoHeight || 0;
-    if (w > 0 && h > 0) return true;
-    await new Promise(r => requestAnimationFrame(r));
-  }
-  return false;
+// ---------- camera ----------
+function showOverlay(show){
+  if (!camOverlay) return;
+  camOverlay.style.display = show ? "grid" : "none";
 }
 
-// ---------- camera ----------
+async function waitForVideoReady(video, timeoutMs = 3500){
+  if ((video.videoWidth || 0) > 0 && (video.videoHeight || 0) > 0) return;
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(() => { cleanup(); reject(new Error("video_not_ready")); }, timeoutMs);
+    const on = () => {
+      if ((video.videoWidth || 0) > 0 && (video.videoHeight || 0) > 0){
+        cleanup(); resolve();
+      }
+    };
+    function cleanup(){
+      clearTimeout(t);
+      video.removeEventListener("loadedmetadata", on);
+      video.removeEventListener("loadeddata", on);
+      video.removeEventListener("canplay", on);
+    }
+    video.addEventListener("loadedmetadata", on);
+    video.addEventListener("loadeddata", on);
+    video.addEventListener("canplay", on);
+    on();
+  });
+}
+
 async function initCam(){
   try{
-    const primaryConstraints = { video: { facingMode: { ideal: "environment" } }, audio: false };
-    const fallbackConstraints = { video: true, audio: false };
-    try{
-      stream = await navigator.mediaDevices.getUserMedia(primaryConstraints);
-    }catch(e1){
-      console.warn("primary getUserMedia failed, retrying with fallback", e1);
-      stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      throw Object.assign(new Error("getUserMedia_not_supported"), { name: "NotSupportedError" });
     }
+    // Stop existing stream if any
+    if (stream){
+      try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
+      stream = null;
+    }
+    const tries = [
+      { video: { facingMode: { ideal: "environment" } }, audio: false },
+      { video: { facingMode: "environment" }, audio: false },
+      { video: { facingMode: { ideal: "user" } }, audio: false },
+      { video: true, audio: false },
+    ];
+    let lastErr = null;
+    for (const c of tries){
+      try{ stream = await navigator.mediaDevices.getUserMedia(c); lastErr = null; break; }
+      catch(e){ lastErr = e; }
+    }
+    if (lastErr) throw lastErr;
+
     cam.srcObject = stream;
-    await new Promise(res => cam.onloadedmetadata = res);
-    await cam.play();
-    if (!stream){ btnCapture.textContent = "🎥 カメラ起動 / Start camera"; setStatus("🎥でカメラ起動（許可）→ 📸で撮影 → 🔎で解析 / もしくは 🖼で画像選択"); }
-  else { setStatus("準備完了：📸で撮影 → 🔎でタグ解析"); }
+    // iOS/Safari: ensure inline playback + allow autoplay
+    try{ cam.setAttribute('playsinline',''); cam.setAttribute('webkit-playsinline',''); }catch(e){}
+    cam.muted = true;
+    cam.autoplay = true;
+    try{ await cam.play(); }catch(e){}
+    try{ await waitForVideoReady(cam); }catch(e){}
+
+    // Show camera view
+    showOverlay(false);
+    cam.style.display = "block";
+    shot.style.display = "none";
+    frozen = false;
+    btnRetake.style.display = "none";
+    btnCapture.style.display = "inline-flex";
+    btnAnalyze.disabled = true;
+
+    setStatus("準備完了：📸で撮影 or 🖼で画像選択 → 🔎でタグ解析 / Ready: 📸 Capture or 🖼 Choose → 🔎 Analyze");
   }catch(e){
     console.error(e);
-    if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")){
-      setStatus("カメラ権限が必要です：📸を1回タップして許可してください（許可後は自動で映像が出ます）。ダメな場合は🖼から撮影/選択できます。");
-    } else {
-      setStatus("カメラを起動できませんでした。権限（カメラ許可）/ HTTPS / ブラウザ設定をご確認ください。ダメな場合は🖼から撮影/選択できます。");
+    showOverlay(true);
+    const name = e?.name || "";
+    if (name === "NotAllowedError" || name === "SecurityError"){
+      setStatus("カメラ許可が必要です。ブラウザのサイト設定でカメラを「許可」にしてください。 / Camera permission required. Allow camera in site settings.");
+    }else if (name === "NotReadableError"){
+      setStatus("カメラが他アプリで使用中の可能性があります（Zoom/Teams/カメラ等）。 / Camera may be in use by another app.");
+    }else{
+      setStatus("カメラを起動できませんでした（" + (name || "error") + "）。HTTPS / 権限 / ブラウザ設定を確認してください。 / Couldn’t start the camera.");
     }
   }
 }
 
 async function freezeFrame(){
-  // On some mobile browsers, videoWidth/videoHeight becomes available a bit later.
-  if (!await waitForVideoReady()){
-    setStatus("カメラ映像の準備待ちです。もう一度📸をタップしてください（または権限をご確認ください）。");
-    return;
-  }
+  try{ await waitForVideoReady(cam); }catch(e){}
   const w = cam.videoWidth || 0;
   const h = cam.videoHeight || 0;
+  if (!w || !h){
+    setStatus("カメラ映像がまだ準備できていません。もう一度📸を押してください。 / Camera not ready yet. Tap 📸 again.");
+    return;
+  }
   drawImageToShot(cam, w, h);
+
   cam.style.display = "none";
   shot.style.display = "block";
   frozen = true;
@@ -258,7 +299,6 @@ async function freezeFrame(){
 }
 
 function unfreeze(){
-  ensureTopK10();
   frozen = false;
   cam.style.display = "block";
   shot.style.display = "none";
@@ -270,115 +310,54 @@ function unfreeze(){
   
   tagsEl.textContent = "まだ解析していません。";
   lastItems = [];
-  if (!stream){ btnCapture.textContent = "🎥 カメラ起動 / Start camera"; setStatus("🎥でカメラ起動（許可）→ 📸で撮影 → 🔎で解析 / もしくは 🖼で画像選択"); }
-  else { setStatus("準備完了：📸で撮影 → 🔎でタグ解析"); }
+  setStatus("準備完了：📸で撮影 → 🔎でタグ解析");
 }
 
 btnCapture.onclick = async () => {
-  // iOS/Android: getUserMedia often requires a user gesture.
   if (!stream){
-    try{
-      await initCam();
-    }catch(e){
-      // If camera cannot start, fall back to file input
-      try{ file.click(); }catch(_e){}
-      return;
-    }
+    setStatus("カメラ許可が必要です。先に📷を押してください。 / Please tap 📷 Start Camera first.");
+    await initCam();
+    if (!stream) return;
   }
   await freezeFrame();
 };
 btnRetake.onclick = unfreeze;
-
-
-// Best-effort: try to start camera on load (works on many Android browsers).
-async function attemptAutoInitCam(){
-  if (!navigator.mediaDevices?.getUserMedia) return;
-  if (stream) return;
-  try{
-    await initCam();
-  }catch(e){
-    // Some browsers require a user gesture; we'll fall back to a tap.
-    console.warn("auto initCam blocked", e);
-  }
-}
-window.addEventListener("load", () => { attemptAutoInitCam(); });
-
-// ---------- image picker ----------
-if (btnPick){
-  btnPick.addEventListener("click", () => {
-    try{
-      // reset to allow selecting the same file again
-      file.value = "";
-      file.click(); // must be inside a user gesture
-    }catch(e){}
-  });
-}
-
-// ---------- file load ----------
-file.addEventListener("change", async () => {
-  const f = file.files?.[0];
+btnStartCam.onclick = async () => { await initCam(); };
+if (btnOverlayStart){ btnOverlayStart.onclick = async () => { await initCam(); }; }
+btnPick.onclick = () => fileInput.click();
+fileInput.onchange = async () => {
+  const f = fileInput.files && fileInput.files[0];
   if (!f) return;
-
-  // Stop live camera stream to save battery while analyzing a picked image
   try{
-    if (stream){
-      for (const t of stream.getTracks()) t.stop();
-      stream = null;
-      cam.srcObject = null;
-    }
-  }catch(e){}
-
-  const img = new Image();
-  const url = URL.createObjectURL(f);
-  img.onload = () => {
-    try{ URL.revokeObjectURL(url); }catch(e){}
-    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
-    cam.style.display = "none";
-    shot.style.display = "block";
-    frozen = true;
-
-    btnCapture.style.display = "none";
-    btnRetake.style.display = "inline-block";
-    enableActions(true);
-
-    setStatus("画像を読み込みました：🔎で解析");
-  };
-  img.onerror = () => {
-    try{ URL.revokeObjectURL(url); }catch(e){}
-    setStatus("画像を読み込めませんでした。別の画像を選んでください。");
-  };
-  img.src = url;
-});
-
-
-img.onload = () => {
-    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
-    cam.style.display = "none";
-    shot.style.display = "block";
-    frozen = true;
-
-    btnCapture.style.display = "none";
-    btnRetake.style.display = "inline-block";
-    enableActions(true);
-
-    setStatus("画像を読み込みました：🔎で解析");
-  };
-  const url = URL.createObjectURL(f);
-  img.onload = () => {
-    try{ URL.revokeObjectURL(url); }catch(e){}
-    drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
-    cam.style.display = "none";
-    shot.style.display = "block";
-    frozen = true;
-
-    btnCapture.style.display = "none";
-    btnRetake.style.display = "inline-block";
-    enableActions(true);
-
-    setStatus("画像を読み込みました：🔎で解析");
-  };
-  img.src = url;
-});
+    setStatus("画像を読み込み中… / Loading image…");
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => {
+      try{
+        drawImageToShot(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
+        cam.style.display = "none";
+        shot.style.display = "block";
+        frozen = true;
+        btnCapture.style.display = "none";
+        btnRetake.style.display = "inline-flex";
+        btnAnalyze.disabled = false;
+        setStatus("画像OK：🔎でタグ解析 / Image ready: 🔎 Analyze");
+      }finally{
+        URL.revokeObjectURL(url);
+        fileInput.value = "";
+      }
+    };
+    img.onerror = () => {
+      setStatus("画像を読み込めませんでした。別の画像で試してください。 / Could not load image.");
+      URL.revokeObjectURL(url);
+      fileInput.value = "";
+    };
+    img.src = url;
+  }catch(e){
+    console.error(e);
+    setStatus("画像読み込みでエラーが発生しました。 / Error while loading image.");
+  }
+};
 
 // ---------- resize + blob ----------
 async function canvasToJpegBlob(canvas){
@@ -497,34 +476,55 @@ btnAnalyze.onclick = async () => {
 
 // Speak top N sequentially (simple queue)
 
-ensureTopK10();
-// Kickoff
-try{ topkSel.value = "10"; }catch(e){}
-setStatus("📸を押すとカメラが起動します（許可が必要です）");
-// PWA service worker
-if ("serviceWorker" in navigator){
-  navigator.serviceWorker.register("./sw.js", { scope: "./" })
-    .then((reg) => {
-      // Try to update immediately (useful after deploying new files)
-      try{ reg.update(); }catch(e){}
-      console.log("[SW] registered:", reg.scope);
-    })
-    .catch((err) => {
-      console.warn("[SW] register failed:", err);
-    });
+function startCamOnFirstGesture(){
+  const once = async () => {
+    if (!stream){ await initCam(); }
+  };
+  window.addEventListener('pointerdown', once, { once:true });
+  window.addEventListener('touchstart', once, { once:true });
 }
 
-
-// ---------- lifecycle (mobile battery / camera permission) ----------
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden){
-    // stop camera when backgrounded
-    try{
-      if (stream){
-        for (const t of stream.getTracks()) t.stop();
-        stream = null;
-        cam.srcObject = null;
-      }
-    }catch(e){}
+// Kickoff
+showOverlay(true);
+// best-effort auto start (works on some Android/Chrome when permission is already granted)
+(async () => {
+  try{
+    if (stream) return;
+    if (window.isSecureContext === false){
+      setStatus("HTTPSで開いてください（カメラはHTTPS必須です）。 / Please open via HTTPS.");
+      return;
+    }
+    await initCam();
+  }catch(e){
+    // ignore (user can tap)
   }
-});
+})();
+setStatus("カメラ未開始です。上のボタン、または画面中央をタップして許可してください。 / Tap to start camera and allow.");
+
+// PWA service worker
+if ("serviceWorker" in navigator){
+  navigator.serviceWorker.register("./sw.js")
+  .then((reg) => {
+    try{ reg.update(); }catch(e){}
+    // If a new SW is waiting, activate it immediately
+    if (reg.waiting){
+      try{ reg.waiting.postMessage({type:"SKIP_WAITING"}); }catch(e){}
+    }
+    reg.addEventListener("updatefound", () => {
+      const nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener("statechange", () => {
+        if (nw.state === "installed" && reg.waiting){
+          try{ reg.waiting.postMessage({type:"SKIP_WAITING"}); }catch(e){}
+        }
+      });
+    });
+  })
+  .catch(()=>{});
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    // Reload once when the new SW takes control
+    if (window.__swReloaded) return;
+    window.__swReloaded = true;
+    window.location.reload();
+  });
+}
