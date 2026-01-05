@@ -1,0 +1,8 @@
+更新内容 (2026-01-05)
+- HF Spaceのスリープ/コールドスタートに強くするため、/health で起動確認 + fetch(翻訳/解析)にタイムアウト&リトライを追加しました。
+- 翻訳がほぼ全滅する場合に、無料翻訳API(MyMemory)の上限や一時制限の可能性をステータスに表示します。
+- Service Worker のキャッシュ名を v14 に更新（更新が端末に反映されやすくなります）。
+
+使い方
+- このZIPを解凍し、GitHub Pages 側の同名ファイルに上書きしてください。
+  (index.html / app.js / sw.js / manifest.json / README.md)
