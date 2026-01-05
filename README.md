@@ -12,7 +12,7 @@ pinned: false
 撮った写真（または選んだ画像）を**タグ解析（画像→単語）**し、結果を **日本語・英語・中国語・韓国語**で並べて表示・発音できる、軽量PWAです。  
 （発音は端末の Text-to-Speech / Speech Synthesis に依存します）
 
-**Live Demo（Hugging Face Spaces）**: https://mazzgogo-photo-translator.hf.space/
+**Live Demo**: https://masato-nasu.github.io/Photo-Translator/
 
 ---
 
@@ -99,29 +99,7 @@ iOS側に英語音声が入っていない／日本語音声が優先されて�
 
 ## スクリーンショット / Screenshot
 
-> リポジトリに画像を置いた上で、パスを合わせてください。
-
-例:
-- `docs/screenshot1.jpg`
-
-```md
-![screenshot](docs/screenshot1.jpg)
-```
+md
+![screenshot](/screenshot1.png)
 
 ---
-
-## 開発者向けメモ（任意） / For developers (optional)
-
-Space には簡単なAPIがあります（例）:
-
-- `GET /health` : ヘルスチェック
-- `POST /tagger` : 画像→タグ推定
-- `POST /translate` : テキスト翻訳（構成次第）
-
-フロントエンドは `index.html` + `app.js` の静的構成で、PWA用に `manifest.json` / `sw.js` を含みます。
-
----
-
-## ライセンス / License
-
-必要に応じて追記してください（例: MIT）。
