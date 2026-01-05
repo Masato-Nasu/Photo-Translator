@@ -2,8 +2,14 @@ name: Wake Hugging Face Space
 
 on:
   schedule:
-    # 06:55 JST = 21:55 UTC（前日）
-    - cron: "55 21 * * *"
+    # JST 00:00 = UTC 15:00
+    - cron: "0 15 * * *"
+    # JST 06:00 = UTC 21:00
+    - cron: "0 21 * * *"
+    # JST 12:00 = UTC 03:00
+    - cron: "0 3 * * *"
+    # JST 18:00 = UTC 09:00
+    - cron: "0 9 * * *"
   workflow_dispatch:
 
 concurrency:
