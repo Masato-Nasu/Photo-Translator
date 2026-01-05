@@ -1,26 +1,33 @@
 name: Wake Hugging Face Space
 
 on:
-  # GitHub Actions の cron は UTC です。
-  # 06:55 JST = 21:55 UTC（前日）
   schedule:
+    # 06:55 JST = 21:55 UTC（前日）
     - cron: "55 21 * * *"
   workflow_dispatch:
+
+concurrency:
+  group: wake-hf-space
+  cancel-in-progress: true
 
 jobs:
   wake:
     runs-on: ubuntu-latest
     steps:
-      - name: Hit /health (wake up)
+      - name: Wake (hit root then /health)
         run: |
           set -u
-          URL="https://mazzgogo-photo-translator.hf.space/health"
-          echo "Hitting: $URL"
 
-          # 起動直後は 503(warming_up) になることがあるので軽くリトライします
-          for i in 1 2 3 4 5; do
+          ROOT="https://mazzgogo-photo-translator.hf.space/"
+          HEALTH="https://mazzgogo-photo-translator.hf.space/health"
+
+          echo "Hitting root once: $ROOT"
+          curl -sS -L --max-time 20 "$ROOT" -o /dev/null || true
+
+          echo "Hitting /health with retries: $HEALTH"
+          for i in 1 2 3 4 5 6; do
             echo "Attempt $i..."
-            http_code=$(curl -sS -L --max-time 20 -o response.json -w "%{http_code}" "$URL" || true)
+            http_code=$(curl -sS -L --max-time 20 -o response.json -w "%{http_code}" "$HEALTH" || true)
             echo "HTTP $http_code"
             cat response.json 2>/dev/null || true
 
