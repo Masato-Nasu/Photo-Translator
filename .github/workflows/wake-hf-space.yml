@@ -1,0 +1,36 @@
+name: Wake Hugging Face Space
+
+on:
+  # GitHub Actions の cron は UTC です。
+  # 06:55 JST = 21:55 UTC（前日）
+  schedule:
+    - cron: "55 21 * * *"
+  workflow_dispatch:
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit /health (wake up)
+        run: |
+          set -u
+          URL="https://mazzgogo-photo-translator.hf.space/health"
+          echo "Hitting: $URL"
+
+          # 起動直後は 503(warming_up) になることがあるので軽くリトライします
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i..."
+            http_code=$(curl -sS -L --max-time 20 -o response.json -w "%{http_code}" "$URL" || true)
+            echo "HTTP $http_code"
+            cat response.json 2>/dev/null || true
+
+            if [ "$http_code" = "200" ]; then
+              echo "OK (Space is responding)"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Done (wake request sent)"
+          exit 0
