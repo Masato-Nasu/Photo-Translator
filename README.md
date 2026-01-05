@@ -1,12 +1,3 @@
----
-title: Photo-Translator
-emoji: 📷
-colorFrom: indigo
-colorTo: pink
-sdk: docker
-pinned: false
----
-
 # Photo Translator / 画像タグ翻訳 PWA
 
 撮った写真（または選んだ画像）を**タグ解析（画像→単語）**し、結果を **日本語・英語・中国語・韓国語**で並べて表示・発音できる、軽量PWAです。  
