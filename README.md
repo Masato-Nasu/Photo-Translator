@@ -90,11 +90,6 @@ iOS側に英語音声が入っていない／日本語音声が優先されて�
 
 ## スクリーンショット / Screenshot
 
-> リポジトリに画像を置いた上で、パスを合わせてください。
-
-例:
-- `docs/screenshot1.jpg`
-
 md
 ![screenshot](screenshot1.jpg)
 
