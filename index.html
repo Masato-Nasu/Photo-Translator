@@ -65,6 +65,17 @@
 
     /* --- Mobile / touch: make controls and text comfortably tappable --- */
     @media (pointer: coarse), (max-width: 680px){
+
+      /* Centered capture button overlay on mobile */
+      #btnCapture{
+        position:fixed;
+        top:50%;
+        left:50%;
+        transform:translate(-50%, -50%);
+        z-index:60;
+        max-width:260px;
+      }
+
       html{font-size:18px;}
       #wrap{gap:14px;padding:14px;}
       .panel{border-radius:16px;padding:12px;}
