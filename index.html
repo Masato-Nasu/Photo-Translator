@@ -15,14 +15,14 @@
     html{font-size:16px;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
       font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP",sans-serif;}
-    #wrap{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr auto;gap:10px;
+    #wrap{position:fixed;inset:0;display:grid;grid-template-rows:1fr auto auto;gap:10px;
       padding:10px;box-sizing:border-box;}
     .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:10px;}
     .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
     button,select,input{
       background:var(--btn);color:var(--fg);border:1px solid var(--btnb);
-      border-radius:14px;padding:14px 16px;font-size:17px;min-height:50px;
+      border-radius:14px;padding:12px 14px;font-size:16px;min-height:44px;
       -webkit-tap-highlight-color: transparent;
     }
     button{cursor:pointer}
@@ -68,7 +68,7 @@
       html{font-size:18px;}
       #wrap{gap:14px;padding:14px;}
       .panel{border-radius:16px;padding:12px;}
-      button,select,input{font-size:20px;padding:18px 20px;border-radius:18px;min-height:66px;}
+      button,select,input{font-size:18px;padding:16px 18px;border-radius:16px;min-height:60px;}
       button{font-weight:600;}
       .pill{padding:8px 12px;font-size:16px;border-radius:999px;}
       .muted{font-size:15px;line-height:1.35;}
@@ -85,10 +85,8 @@
 </style>
 </head>
 <body>
-  <div id="wrap"><div id="stage" class="panel" style="padding:0">
-      <video id="cam" playsinline autoplay muted></video>
-      <canvas id="shot"></canvas>
-    </div><div class="panel">
+  <div id="wrap">
+    <div class="panel">
       <div class="bar">
         <div class="row">
           <button id="btnCapture">🎥 カメラ起動 / Start camera</button>
@@ -112,7 +110,10 @@
       <div class="muted" id="status">カメラ起動中…（許可が必要です）</div>
     </div>
 
-    
+    <div id="stage" class="panel" style="padding:0">
+      <video id="cam" playsinline autoplay muted></video>
+      <canvas id="shot"></canvas>
+    </div>
 
     <div class="panel">
       <div class="bar" style="margin-bottom:6px">
