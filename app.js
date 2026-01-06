@@ -23,6 +23,67 @@ const tagsEl = document.getElementById("tags");
 const TAGGER_ENDPOINT = "https://mazzgogo-photo-translator.hf.space";
 const TRANSLATE_ENDPOINT = "https://mazzgogo-photo-translator.hf.space/translate";
 
+// Health endpoint (used to detect sleep/cold start)
+const HEALTH_ENDPOINT = TAGGER_ENDPOINT.replace(/\/$/, "") + "/health";
+
+// ---------- Networking helpers (timeout + retry) ----------
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+  const ac = new AbortController();
+  const id = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ac.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+async function fetchJsonWithRetry(url, options, {
+  timeoutMs = 20000,
+  retries = 2,
+  backoffMs = 900,
+  retryStatuses = [429, 502, 503, 504],
+} = {}) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetchWithTimeout(url, options, timeoutMs);
+      let j = null;
+      try { j = await r.clone().json(); } catch { j = null; }
+
+      if (r.ok) return { ok: true, status: r.status, json: j };
+
+      // Retry on transient statuses
+      if (retryStatuses.includes(r.status) && attempt < retries) {
+        await sleep(backoffMs * Math.pow(2, attempt));
+        continue;
+      }
+      return { ok: false, status: r.status, json: j };
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) {
+        await sleep(backoffMs * Math.pow(2, attempt));
+        continue;
+      }
+      throw lastErr;
+    }
+  }
+  throw lastErr || new Error("fetch failed");
+}
+
+async function ensureServerAwake() {
+  // HF Spaces (free) may sleep; first access can take time.
+  const r = await fetchJsonWithRetry(HEALTH_ENDPOINT, { method: "GET" }, {
+    timeoutMs: 7000,
+    retries: 4,
+    backoffMs: 900,
+    retryStatuses: [502, 503, 504],
+  });
+  return !!r.ok;
+}
+
+
 // Image upload settings (speed/quality trade)
 const MAX_DIM = 768;          // resize long edge to reduce bandwidth (faster)
 const JPEG_QUALITY = 0.80;
@@ -177,9 +238,14 @@ async function postTags(topk) {
   const url = new URL(TAGGER_ENDPOINT.replace(/\/$/, "") + "/tagger");
   url.searchParams.set("topk", String(topk));
 
-  const r = await fetch(url.toString(), { method: "POST", body: fd });
-  if (!r.ok) throw new Error("tagger http " + r.status);
-  const j = await r.json();
+  const res = await fetchJsonWithRetry(url.toString(), { method: "POST", body: fd }, {
+    timeoutMs: 65000,
+    retries: 2,
+    backoffMs: 1000,
+    retryStatuses: [429, 502, 503, 504],
+  });
+  if (!res.ok) throw new Error("tagger http " + res.status);
+  const j = res.json || {};
 
   const tags = (j.tags || []).map((x) => ({
     label: x.label_en ?? x.label ?? "",
@@ -189,13 +255,22 @@ async function postTags(topk) {
 }
 
 async function translateTexts(texts, target) {
-  const r = await fetch(TRANSLATE_ENDPOINT, {
+  const res = await fetchJsonWithRetry(TRANSLATE_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ target, texts }),
+  }, {
+    timeoutMs: 45000,
+    retries: 2,
+    backoffMs: 1000,
+    retryStatuses: [429, 502, 503, 504],
   });
-  if (!r.ok) throw new Error("translate http " + r.status);
-  const j = await r.json();
+
+  if (!res.ok) {
+    const detail = (res.json && (res.json.detail || res.json.error)) ? `: ${res.json.detail || res.json.error}` : "";
+    throw new Error("translate http " + res.status + detail);
+  }
+  const j = res.json || {};
   return j.textsTranslated || null;
 }
 
@@ -437,6 +512,10 @@ btnAnalyze.onclick = async () => {
 
     const topk = Number(topkSel.value || 10);
 
+    // HF無料Spaceはスリープすることがあります。起動直後は応答まで時間がかかるので、先に /health で起動確認します。
+    setStatus("サーバー確認中…（HF無料はスリープ後に起動が必要です）");
+    await ensureServerAwake().catch(() => false);
+
     // Phase 1: Tagger
     const t0 = performance.now();
     setStatus("タグ解析中…（画像送信中）");
@@ -470,15 +549,16 @@ btnAnalyze.onclick = async () => {
     let trZh = null;
     let trKo = null;
 
-    try {
-      [trJa, trZh, trKo] = await Promise.all([
-        translateWithCache(texts, "ja").catch(() => null),
-        translateWithCache(texts, "zh").catch(() => null),
-        translateWithCache(texts, "ko").catch(() => null),
-      ]);
-    } catch {
-      // ignore; we handle null
-    }
+    const trErrs = [];
+    const [jaRes, zhRes, koRes] = await Promise.all([
+      translateWithCache(texts, "ja").then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e })),
+      translateWithCache(texts, "zh").then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e })),
+      translateWithCache(texts, "ko").then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e })),
+    ]);
+
+    if (jaRes.ok) trJa = jaRes.v; else trErrs.push(jaRes.e);
+    if (zhRes.ok) trZh = zhRes.v; else trErrs.push(zhRes.e);
+    if (koRes.ok) trKo = koRes.v; else trErrs.push(koRes.e);
 
     if (runId !== lastRunId) return;
 
@@ -500,9 +580,21 @@ btnAnalyze.onclick = async () => {
 
     renderTags(items);
 
+    if (trErrs.length) {
+      const msg = trErrs.map((e) => (e && e.message) ? e.message : String(e)).join(" / ");
+      console.warn("translate errors:", msg);
+    }
+
     const dt = Math.round(performance.now() - t0);
     if (hadFallback) {
-      setStatus(`完了（${dt}ms）：一部翻訳できない語は「—」になります`);
+      // 翻訳が全滅に近い場合は、無料翻訳APIの上限/一時制限や、Space再起動直後の不安定さの可能性。
+      const miss = items.filter((x) => x.ja === "—" || x.zh === "—" || x.ko === "—").length;
+      const ratio = miss / Math.max(1, items.length);
+      if (ratio > 0.8) {
+        setStatus(`完了（${dt}ms）：翻訳が停止している可能性があります（HF無料の起動直後 / 無料翻訳APIの上限など）。Top-Kを下げるか、少し待って再試行してください。`);
+      } else {
+        setStatus(`完了（${dt}ms）：一部翻訳できない語は「—」になります`);
+      }
     } else {
       setStatus(`完了（${dt}ms）：各言語をタップすると発音します`);
     }
