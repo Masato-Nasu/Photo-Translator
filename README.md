@@ -4,7 +4,7 @@
 **日本語・英語・中国語・韓国語** の 4言語セットで表示・発音できる、軽量PWAです。  
 （発音は端末の Text-to-Speech / Speech Synthesis に依存します）
 
-**Live Demo**: https://masato-nasu.github.io/Photo-Translator/
+**Live Demo** https://masato-nasu.github.io/Photo-Translator/
 
 ---
 
