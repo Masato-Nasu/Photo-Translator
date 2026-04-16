@@ -271,7 +271,13 @@ async function translateTexts(texts, target) {
     throw new Error("translate http " + res.status + detail);
   }
   const j = res.json || {};
-  return j.textsTranslated || null;
+  return {
+    textsTranslated: Array.isArray(j.textsTranslated) ? j.textsTranslated : null,
+    provider: j.provider || null,
+    fallbackUsed: !!j.fallbackUsed,
+    error: j.error || null,
+    detail: j.detail || null,
+  };
 }
 
 async function translateWithCache(texts, lang) {
@@ -295,21 +301,42 @@ async function translateWithCache(texts, lang) {
   }
 
   const missing = [...idxByKey.keys()];
-  if (missing.length === 0) return out;
+  if (missing.length === 0) {
+    return { values: out, provider: 'cache', fallbackUsed: false, hadMiss: false, error: null, detail: null };
+  }
 
-  const tr = await translateTexts(missing, lang);
-  if (!tr || !Array.isArray(tr)) return out;
+  const trRes = await translateTexts(missing, lang);
+  const tr = trRes && Array.isArray(trRes.textsTranslated) ? trRes.textsTranslated : null;
+  if (!tr) {
+    return {
+      values: out,
+      provider: trRes?.provider || null,
+      fallbackUsed: !!trRes?.fallbackUsed,
+      hadMiss: true,
+      error: trRes?.error || 'translate_failed',
+      detail: trRes?.detail || null,
+    };
+  }
 
+  let hadMiss = false;
   for (let j = 0; j < missing.length; j++) {
     const key = missing[j];
     const val = (tr[j] || "").trim();
     if (val) cache[key] = val;
     const idxs = idxByKey.get(key) || [];
     for (const i of idxs) out[i] = val || null;
+    if (!val) hadMiss = true;
   }
 
   saveTrCache(lang, cache);
-  return out;
+  return {
+    values: out,
+    provider: trRes?.provider || null,
+    fallbackUsed: !!trRes?.fallbackUsed,
+    hadMiss,
+    error: trRes?.error || null,
+    detail: trRes?.detail || null,
+  };
 }
 
 // ---------- Rendering (group 4 languages per tag) ----------
@@ -550,15 +577,16 @@ btnAnalyze.onclick = async () => {
     let trKo = null;
 
     const trErrs = [];
+    const trMeta = [];
     const [jaRes, zhRes, koRes] = await Promise.all([
-      translateWithCache(texts, "ja").then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e })),
-      translateWithCache(texts, "zh").then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e })),
-      translateWithCache(texts, "ko").then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e })),
+      translateWithCache(texts, "ja").then((v) => ({ ok: true, v, lang: 'ja' })).catch((e) => ({ ok: false, e, lang: 'ja' })),
+      translateWithCache(texts, "zh").then((v) => ({ ok: true, v, lang: 'zh' })).catch((e) => ({ ok: false, e, lang: 'zh' })),
+      translateWithCache(texts, "ko").then((v) => ({ ok: true, v, lang: 'ko' })).catch((e) => ({ ok: false, e, lang: 'ko' })),
     ]);
 
-    if (jaRes.ok) trJa = jaRes.v; else trErrs.push(jaRes.e);
-    if (zhRes.ok) trZh = zhRes.v; else trErrs.push(zhRes.e);
-    if (koRes.ok) trKo = koRes.v; else trErrs.push(koRes.e);
+    if (jaRes.ok) { trJa = jaRes.v.values; trMeta.push({ lang: 'ja', ...jaRes.v }); } else trErrs.push(jaRes.e);
+    if (zhRes.ok) { trZh = zhRes.v.values; trMeta.push({ lang: 'zh', ...zhRes.v }); } else trErrs.push(zhRes.e);
+    if (koRes.ok) { trKo = koRes.v.values; trMeta.push({ lang: 'ko', ...koRes.v }); } else trErrs.push(koRes.e);
 
     if (runId !== lastRunId) return;
 
@@ -571,9 +599,9 @@ btnAnalyze.onclick = async () => {
       return {
         rank: i + 1,
         en: t.label,
-        ja: ja || "—",
-        zh: zh || "—",
-        ko: ko || "—",
+        ja: ja || t.label,
+        zh: zh || t.label,
+        ko: ko || t.label,
         score: t.score,
       };
     });
@@ -587,14 +615,14 @@ btnAnalyze.onclick = async () => {
 
     const dt = Math.round(performance.now() - t0);
     if (hadFallback) {
-      // 翻訳が全滅に近い場合は、無料翻訳APIの上限/一時制限や、Space再起動直後の不安定さの可能性。
-      const miss = items.filter((x) => x.ja === "—" || x.zh === "—" || x.ko === "—").length;
-      const ratio = miss / Math.max(1, items.length);
-      if (ratio > 0.8) {
-        setStatus(`完了（${dt}ms）：翻訳が停止している可能性があります（HF無料の起動直後 / 無料翻訳APIの上限など）。Top-Kを下げるか、少し待って再試行してください。`);
-      } else {
-        setStatus(`完了（${dt}ms）：一部翻訳できない語は「—」になります`);
+      const degraded = trMeta.filter((x) => x.hadMiss || x.error || x.fallbackUsed);
+      const metaText = degraded
+        .map((x) => `${x.lang.toUpperCase()}:${x.provider || 'unknown'}${x.error ? `(${x.error})` : ''}`)
+        .join(' / ');
+      if (metaText) {
+        console.warn('translate degraded:', metaText);
       }
+      setStatus(`完了（${dt}ms）：一部翻訳できない語は英語表示のままにしています`);
     } else {
       setStatus(`完了（${dt}ms）：各言語をタップすると発音します`);
     }
