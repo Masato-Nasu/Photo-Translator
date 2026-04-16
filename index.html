@@ -35,7 +35,7 @@
 @supports not (aspect-ratio: 1 / 1){ #stage{height:45vh;} }
     video,canvas{width:100%;height:100%;object-fit:cover;background:#000}
     canvas{display:none}
-    #tags{flex:1 1 auto;min-height:0;overflow:auto;max-height:none;}
+    #tags{flex:1 1 auto;min-height:0;overflow:auto;max-height:none;display:flex;flex-direction:column;align-items:stretch;gap:12px;position:relative;clear:both;}
     #controlsPanel{flex:0 0 auto;}
     #controlsPanel .bar{flex-direction:column;align-items:center;justify-content:center;}
     #controlsPanel .row{justify-content:center;width:100%;}
@@ -45,7 +45,7 @@
 
 
     /* Tag cards: one concept = one block (EN/JA/ZH/KO grouped) */
-    .tag{padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);}
+    .tag{padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);position:relative;float:none;clear:both;display:block;width:100%;box-sizing:border-box;overflow:visible;contain:none;}
     .tagHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
     .tagRank{font-size:12px;color:var(--muted);white-space:nowrap}
     .score{color:var(--muted);font-size:12px;white-space:nowrap}
@@ -70,7 +70,7 @@
     header,main,footer,.panel,.bar,.row{max-width:100%;}
     button,select,input{max-width:100%;}
     .panel{overflow:hidden;}
-    .tag{display:block;width:100%;overflow:hidden;}
+    .tag{display:block;width:100%;overflow:visible;}
     .ttext{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
     /* --- Mobile / touch: make controls and text comfortably tappable --- */

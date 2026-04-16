@@ -1,4 +1,4 @@
-const CACHE = "photo-translator-pwa-v16";
+const CACHE = "photo-translator-pwa-v17";
 const ASSETS = [
   "./",
   "./index.html",
