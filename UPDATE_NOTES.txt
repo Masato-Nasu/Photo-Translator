@@ -6,3 +6,5 @@
 使い方
 - このZIPを解凍し、GitHub Pages 側の同名ファイルに上書きしてください。
   (index.html / app.js / sw.js / manifest.json / README.md)
+
+- PWA cache bump: service worker cache name updated to v16 to force app refresh.
